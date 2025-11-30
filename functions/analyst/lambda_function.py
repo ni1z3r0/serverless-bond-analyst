@@ -1,3 +1,4 @@
+
 import boto3
 import urllib.request
 import json
@@ -5,6 +6,11 @@ import os
 import datetime
 import re
 import gzip
+import logging
+
+# Logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 BUCKET_NAME = os.environ.get('BUCKET_NAME')
@@ -25,7 +31,8 @@ def get_config():
     try:
         obj = s3.get_object(Bucket=BUCKET_NAME, Key="portfolio_config.json")
         return json.loads(obj['Body'].read())
-    except:
+    except Exception as e:
+        logger.exception("Failed to load portfolio_config.json from S3")
         return [] # Fail safe
 
 # 2. MACRO DATA FETCHER
@@ -41,7 +48,9 @@ def get_macro_data():
                 if content[:2] == b'\x1f\x8b': content = gzip.decompress(content)
                 data = json.loads(content)
                 return float(data['chart']['result'][0]['meta']['regularMarketPrice'])
-        except: return None
+        except Exception as e:
+            logger.exception("Failed to fetch DXY from Yahoo")
+            return None
 
     def get_fred(id):
         try:
@@ -50,7 +59,9 @@ def get_macro_data():
                 data = json.loads(response.read().decode('utf-8'))
                 val = data['observations'][0]['value']
                 return float(val) if val != "." else None
-        except: return None
+        except Exception as e:
+            logger.exception("Failed to fetch FRED series %s", id)
+            return None
 
     us10y, us02y = get_fred('DGS10'), get_fred('DGS2')
     macros = {
@@ -80,7 +91,9 @@ def get_todays_data():
                     data = json.loads(file_content['Body'].read())
                     data_list.append(data)
         return data_list
-    except: return []
+    except Exception as e:
+        logger.exception("Failed to list or read S3 data for %s", today)
+        return []
 
 # 4. HISTORY FETCHER (Uses Config File)
 def fetch_and_save_history():
@@ -109,7 +122,9 @@ def fetch_and_save_history():
                         d_str = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d')
                         clean_prices.append({'date': d_str, 'price': round(c, 2)})
                 history_data[ticker] = clean_prices
-        except: pass
+        except Exception as e:
+            logger.exception("Failed fetching history for %s", ticker)
+            pass
             
     if history_data:
         s3.put_object(Bucket=BUCKET_NAME, Key="dashboard_history.json", Body=json.dumps(history_data), ContentType='application/json')
@@ -127,7 +142,9 @@ def calculate_analytics(todays_data):
                     'Yield': float(d['Yield']), 
                     'Duration': float(d['Duration'])
                 })
-            except: continue
+            except Exception as e:
+                logger.exception("Failed to parse bond record for analytics: %s", d)
+                continue
             
     slope, intercept = 0, 0
     n = len(points)
@@ -139,7 +156,9 @@ def calculate_analytics(todays_data):
         try:
             slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x**2)
             intercept = (sum_y - slope * sum_x) / n
-        except: pass
+        except Exception as e:
+            logger.exception("Regression calculation failed")
+            pass
 
     dashboard_data = {'scatter_points': points, 'regression': {'slope': slope, 'intercept': intercept}}
     s3.put_object(Bucket=BUCKET_NAME, Key="dashboard_data.json", Body=json.dumps(dashboard_data), ContentType='application/json')
