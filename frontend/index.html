@@ -122,36 +122,64 @@
                         <span class="ticker">${t}</span>
                         <span class="big-val">${d.Yield}% <small>Yld</small></span>
                         <div class="stat-row"><span>Dur:</span> <b>${d.Duration}y</b></div>
-                        <div class="stat-row"><span>OAS:</span> <b>${d.OAS}</b></div>
-                        <div class="stat-row"><span>Mat:</span> <b>${d.Maturity}y</b></div>
                     </div>`;
                 }
                 grid.innerHTML += html;
-            } catch(e) {}
+            } catch(e) { console.error(`Failed to load ${t}:`, e); }
         });
 
-        // 3. Load Charts
-        // Helper for colors
-        const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#34495e'];
+        // 3. Load Scatter Chart
+        fetch(`https://${BUCKET_DOMAIN}/dashboard_data.json`)
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then(d => {
+                if (!d.scatter_points || !Array.isArray(d.scatter_points)) {
+                    console.warn('Invalid scatter_points data');
+                    return;
+                }
+                new Chart(document.getElementById('scatterChart'), {
+                    type: 'scatter',
+                    data: {
+                        datasets: [{
+                            label: 'Bond Valuation',
+                            data: d.scatter_points,
+                            borderColor: '#2980b9',
+                            backgroundColor: 'rgba(41, 128, 185, 0.1)',
+                            borderWidth: 1,
+                            pointRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: { title: { display: true, text: 'Duration' } },
+                            y: { title: { display: true, text: 'Yield' } }
+                        }
+                    }
+                });
+            })
+            .catch(e => console.error('Failed to load scatter chart:', e));
 
-        // A. SCATTER CHART (Bonds)
-        fetch(`https://${BUCKET_DOMAIN}/dashboard_data.json`).then(r=>r.json()).then(d => {
-            const pts = d.scatter_points.map(p => ({x: p.Duration, y: p.Yield, label: p.Ticker}));
-            new Chart(document.getElementById('scatterChart'), {
-                type: 'scatter',
-                data: { datasets: [{ label: 'Bonds', data: pts, backgroundColor: '#27ae60' }] },
-                options: { plugins: { tooltip: { callbacks: { label: c => `${c.raw.label}: ${c.raw.y}%` } } } }
-            });
-        });
-
-        // B. HISTORY CHARTS
-        fetch(`https://${BUCKET_DOMAIN}/dashboard_history.json`).then(r=>r.json()).then(d => {
+        // 4. Load History Charts
+        const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22'];
+        
+        fetch(`https://${BUCKET_DOMAIN}/dashboard_history.json`)
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then(d => {
+                if (!d || typeof d !== 'object') throw new Error('Invalid history data');
             
             // Helper to build datasets.
             const getSets = (tickers) => tickers.map((t, i) => {
                 const prices = d[t] || [];
-                if(!prices.length) return null;
+                if (!prices.length || !prices[0]) return null;
                 const base = prices[0].price;
+                if (typeof base !== 'number') return null;
                 return {
                     label: t,
                     data: prices.map(p => ({x: p.date, y: ((p.price-base)/base)*100})),
@@ -173,7 +201,8 @@
                 data: { datasets: getSets(EQUITIES) },
                 options: { interaction: { mode: 'index', intersect: false } }
             });
-        });
+        })
+            .catch(e => console.error('Failed to load history charts:', e));
     </script>
 </body>
 </html>
