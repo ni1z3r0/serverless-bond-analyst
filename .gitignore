@@ -1,0 +1,24 @@
+# --- Python Specific ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environment Variables & Secrets (CRITICAL) ---
+.env
+.aws/
+secrets.json
+
+# --- OS System Files ---
+.DS_Store
+Thumbs.db
+
+# --- AWS SAM/Serverless temp files (if you use them later) ---
+.aws-sam/
+
+
+# Ignore generated data files
+dashboard_history.json
+dashboard_data.json
+CEMB_2025-11-29.json
+data/*.json
+reports/*.txt

@@ -1,0 +1,68 @@
+{
+  "description": "Reference IAM Policies for the Bond Analyst Microservices",
+  "policies": [
+    {
+      "function": "BondDataFetcher (The Scraper)",
+      "permissions": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:PutObject",
+              "s3:GetObject"
+            ],
+            "Resource": "arn:aws:s3:::YOUR_S3_BUCKET_NAME/*"
+          }
+        ]
+      }
+    },
+    {
+      "function": "BondAnalyst (The Brain)",
+      "permissions": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Sid": "ReadWriteS3",
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "s3:PutObject"
+            ],
+            "Resource": "arn:aws:s3:::YOUR_S3_BUCKET_NAME/*"
+          },
+          {
+            "Sid": "SendToQueue",
+            "Effect": "Allow",
+            "Action": "sqs:SendMessage",
+            "Resource": "arn:aws:sqs:us-east-1:YOUR_AWS_ACCOUNT_ID:BondAnalystAlertsQueue"
+          }
+        ]
+      }
+    },
+    {
+      "function": "EmailForwarder (The Courier)",
+      "permissions": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Sid": "ReadQueue",
+            "Effect": "Allow",
+            "Action": [
+              "sqs:ReceiveMessage",
+              "sqs:DeleteMessage",
+              "sqs:GetQueueAttributes"
+            ],
+            "Resource": "arn:aws:sqs:us-east-1:YOUR_AWS_ACCOUNT_ID:BondAnalystAlertsQueue"
+          },
+          {
+            "Sid": "SendEmail",
+            "Effect": "Allow",
+            "Action": "ses:SendEmail",
+            "Resource": "*"
+          }
+        ]
+      }
+    }
+  ]
+}

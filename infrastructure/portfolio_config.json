@@ -1,0 +1,47 @@
+[
+  {
+    "ticker": "HYG",
+    "type": "bond",
+    "url": "https://www.ishares.com/us/products/239565/ishares-iboxx-high-yield-corporate-bond-etf"
+  },
+  {
+    "ticker": "LQD",
+    "type": "bond",
+    "url": "https://www.ishares.com/us/products/239566/ishares-iboxx-investment-grade-corporate-bond-etf"
+  },
+  {
+    "ticker": "CEMB",
+    "type": "bond",
+    "url": "https://www.ishares.com/us/products/239525/ishares-emerging-markets-corporate-bond-etf"
+  },
+  {
+    "ticker": "USIG",
+    "type": "bond",
+    "url": "https://www.ishares.com/us/products/239460/ishares-credit-bond-etf"
+  },
+  {
+    "ticker": "IEI",
+    "type": "bond",
+    "url": "https://www.ishares.com/us/products/239452/ishares-3-7-year-treasury-bond-etf"
+  },
+  {
+    "ticker": "EEM",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239637/ishares-msci-emerging-markets-etf"
+  },
+  {
+    "ticker": "IWD",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239714/ishares-russell-1000-value-etf"
+  },
+  {
+    "ticker": "IWM",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf"
+  },
+  {
+    "ticker": "IVV",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf"
+  }
+]
