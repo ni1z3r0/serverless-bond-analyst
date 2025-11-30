@@ -1,4 +1,4 @@
-# 📉 Serverless AI Bond Analyst
+# 📉 Serverless AI Bond and Equity ETF Analyst
 
 An automated, event-driven financial dashboard that scrapes bond market data, performs quantitative regression analysis, and uses GPT-4o to generate "CIO-style" daily strategy reports.
 
