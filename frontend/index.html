@@ -98,7 +98,7 @@
             })
             .catch(e => document.getElementById('ai-report').textContent = "Report pending.");
 
-        // 2. Load Fund Cards
+// 2. Load Fund Cards
         const grid = document.getElementById('fund-container');
         ALL.forEach(async t => {
             try {
@@ -106,11 +106,17 @@
                 if(!res.ok) return;
                 const d = await res.json();
                 
+                // Helper to safely format price
+                const priceDisplay = d.Price && d.Price !== "N/A" ? `$${d.Price}` : "";
+
                 let html = "";
                 if(d.Type === 'equity' || d.PE_Ratio) {
                     html = `
                     <div class="fund-card equity">
-                        <span class="ticker">${t}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                            <span class="ticker">${t}</span>
+                            <span style="font-size:1.1rem; font-weight:bold; color:#555;">${priceDisplay}</span>
+                        </div>
                         <span class="big-val">${d.PE_Ratio}x <small>P/E</small></span>
                         <div class="stat-row"><span>Beta:</span> <b>${d.Beta}</b></div>
                         <div class="stat-row"><span>Div:</span> <b>${d.Div_Yield}%</b></div>
@@ -119,9 +125,14 @@
                 } else {
                     html = `
                     <div class="fund-card bond">
-                        <span class="ticker">${t}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                            <span class="ticker">${t}</span>
+                            <span style="font-size:1.1rem; font-weight:bold; color:#555;">${priceDisplay}</span>
+                        </div>
                         <span class="big-val">${d.Yield}% <small>Yld</small></span>
                         <div class="stat-row"><span>Dur:</span> <b>${d.Duration}y</b></div>
+                        <div class="stat-row"><span>OAS:</span> <b>${d.OAS}</b></div>
+                        <div class="stat-row"><span>Mat:</span> <b>${d.Maturity}y</b></div>
                     </div>`;
                 }
                 grid.innerHTML += html;
