@@ -4,7 +4,7 @@ An automated, event-driven financial dashboard that scrapes bond market data, pe
 
 ## 🏗️ Architecture
 This project uses a **Decoupled Microservices Architecture** to ensure reliability and scalability.
-(See the Mermaid diagram above for visual flow)
+(See the Mermaid diagram below for visual flow)
 
 **The Pipeline:**
 1.  **Ingestion:** A Python Lambda scrapes daily yield/duration data for ETFs (HYG, IEI, IWM) and stores it in an **S3 Data Lake**.
