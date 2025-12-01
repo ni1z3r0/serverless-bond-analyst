@@ -50,7 +50,7 @@ def scrape_ishares_page(fund):
             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0'}
         )
         with urllib.request.urlopen(req, timeout=10) as response:
-             content = response.read().decode('utf-8', errors='ignore')            content = response.read().decode('utf-8', errors='ignore')
+             content = response.read().decode('utf-8', errors='ignore')         
 
         # Cleanup text
         text = re.sub(r'<[^>]+>', ' ', content)
@@ -89,7 +89,8 @@ def scrape_ishares_page(fund):
         # Map 'SEC_Yield' to generic 'Yield' for compatibility with existing charts
         if 'SEC_Yield' in stats: stats['Yield'] = stats['SEC_Yield']
 
-        price_match = re.search(r'\$\s*(\d{1,5}\.\d{2})', text)        stats['Price'] = price_match.group(1) if price_match else "N/A"
+        price_match = re.search(r'\$\s*(\d{1,5}\.\d{2})', text)
+        stats['Price'] = price_match.group(1) if price_match else "N/A"
 
         return stats
 
