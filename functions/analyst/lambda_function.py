@@ -192,74 +192,84 @@ def calculate_analytics(todays_data):
     dashboard_data = {'scatter_points': points, 'regression': {'slope': slope, 'intercept': intercept}}
     s3.put_object(Bucket=BUCKET_NAME, Key="dashboard_data.json", Body=json.dumps(dashboard_data), ContentType='application/json')
 
-# 6. AI CHAIN (The "Buffett" Persona)
+# 6. AI CHAIN (JSON Output Version)
 def run_chain(macros, data_list):
     print("⛓️ Running AI Chain...")
     
-    # 1. Bucket the data types
     bonds = [d for d in data_list if d.get('Type') == 'bond']
     equities = [d for d in data_list if d.get('Type') == 'equity']
-    sectors = [d for d in data_list if d.get('Type') == 'sector'] # New Sector Bucket
+    sectors = [d for d in data_list if d.get('Type') == 'sector'] 
     
-    # 2. Construct the Contrarian Prompt
     prompt = f"""
-    ROLE: You are an Elite Value Investor (Persona: Warren Buffett meets Howard Marks). 
-    You are contrarian, patient, and skeptical of "herd mentality." You buy when others are fearful and sell when they are greedy.
+    ROLE: Elite Contrarian Value Investor (Buffett/Marks Persona).
     
-    --- MACRO CONTEXT (The Economic Cycle) ---
-    10Y Treasury: {macros.get('US10Y')}%
-    Yield Curve (10-2): {macros.get('Curve_Spread')}% (Recession signal if < 0)
-    Inflation Breakeven (5Y): {macros.get('Breakeven_5Y')}%
-    
-    --- LABOR MARKET HEALTH (The Engine) ---
-    Current Unemployment: {macros.get('Current_Unemployment')}%
-    5-Year Unemployment Trend (Annual Snapshots): {json.dumps(macros.get('Unemployment_Trend'))}
-    Recent Layoffs (Monthly Data in Thousands): {json.dumps(macros.get('Layoffs_Last_12M'))}
-    
-    --- SECTOR VALUATIONS (Look for Disparities) ---
-    {json.dumps(sectors, indent=1)}
-    
-    --- BROAD HOLDINGS ---
-    Equities: {json.dumps(equities, indent=1)}
-    Bonds: {json.dumps(bonds, indent=1)}
+    --- DATA SNAPSHOT ---
+    10Y Treasury: {macros.get('US10Y')}% | Yield Curve: {macros.get('Curve_Spread')}%
+    Unemployment Trend: {json.dumps(macros.get('Unemployment_Trend'))}
+    Sector Valuations: {json.dumps(sectors, indent=1)}
     
     --- MISSION ---
-    Write a memo to your Investment Committee. Do not use generic AI fluff. Be opinionated.
+    Generate two distinct reports in JSON format.
     
-    1. THE "HERD" NARRATIVE vs. REALITY:
-       What is the market currently pricing in? (e.g., "Soft Landing Perfection"). 
-       Compare this against the Labor Data above—are cracks forming beneath the surface that the herd is ignoring?
+    1. MARKET MEMO (The "Big Picture"):
+       - Analyze the Macro Regime (Labor market cracks? Yield curve signal?).
+       - Provide the "Contrarian" trade for broad assets (Bonds vs Equities).
        
-    2. SECTOR ANALYSIS (Margin of Safety):
-       Analyze the Sector ETFs. Is Tech (IYW) showing signs of euphoria compared to unloved sectors like Energy (IYE) or Financials (IYF)? 
-       Where is the value disconnect?
-       
-    3. THE CONTRARIAN PLAY:
-       Identify the trade that feels "uncomfortable" right now but is mathematically sound based on history.
-       (e.g., "Buying long-duration bonds (IEI/LQD) while inflation fear is still high" or "Buying Small Caps (IWM) if they are priced for armageddon").
-       
-    4. FINAL VERDICT:
-       Are we in a "Greedy" market (Be Fearful) or a "Fearful" market (Be Greedy)?
-       Provide 3 specific bullet points for asset allocation.
+    2. SECTOR DEEP DIVE (The "Alpha"):
+       - Specifically analyze the Sector ETFs (IYW, IYE, IYF, IYH).
+       - Compare valuations (P/E) vs momentum.
+       - Pick one "Overvalued" sector to avoid and one "Undervalued" sector to buy.
+
+    --- OUTPUT FORMAT ---
+    You must return VALID JSON with exactly these two keys:
+    {{
+        "market_memo": "Markdown formatted text...",
+        "sector_analysis": "Markdown formatted text..."
+    }}
     """
     
-    # 3. Call OpenAI
     url = "https://api.openai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
+    # Force JSON mode to ensure the frontend doesn't break
     payload = {
         "model": GPT_MODEL,
+        "response_format": { "type": "json_object" }, 
         "messages": [
-            {"role": "system", "content": "You are a contrarian value investor. You focus on valuations, cycles, and risk."}, 
+            {"role": "system", "content": "You are a helpful financial analyst. Output valid JSON."}, 
             {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.7
+        ]
     }
     
     try:
         req = urllib.request.Request(url, json.dumps(payload).encode('utf-8'), headers)
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read())['choices'][0]['message']['content']
-    except Exception as e: return f"AI Error: {e}"
+    except Exception as e: return json.dumps({"market_memo": f"Error: {e}", "sector_analysis": "Unavailable"})
+
+# --- UPDATE MAIN HANDLER TO SAVE AS JSON ---
+def lambda_handler(event, context):
+    macros = get_macro_data()
+    data_list = get_todays_data()
+    
+    fetch_and_save_history()
+    if data_list: calculate_analytics(data_list)
+    
+    if data_list:
+        report_json = run_chain(macros, data_list) # Returns a JSON string
+        
+        # KEY CHANGE: Save as .json instead of .txt
+        s3.put_object(
+            Bucket=BUCKET_NAME, 
+            Key=f"reports/ai_analysis_{str(datetime.date.today())}.json", 
+            Body=report_json, 
+            ContentType='application/json'
+        )
+        
+        # ... (SQS Alert Logic: You might want to parse the JSON here to send just the 'market_memo' in the email) ...
+        
+        return {'statusCode': 200, 'body': "Report Generated"}
+    
+    return {'statusCode': 200, 'body': "No data found"}
     
 # --- SMS / EMAIL NOTIFIER ---
 def send_text_alert(report_content):
