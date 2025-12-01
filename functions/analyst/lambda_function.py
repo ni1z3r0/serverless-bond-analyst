@@ -235,9 +235,10 @@ def run_chain(macros, data_list):
         "model": GPT_MODEL,
         "response_format": { "type": "json_object" }, 
         "messages": [
-            {"role": "system", "content": "You are a helpful financial analyst. Output valid JSON."}, 
+            {"role": "system", "content": "You are a contrarian value investor. Output valid JSON."}, 
             {"role": "user", "content": prompt}
-        ]
+        ],
+        "temperature": 0.3
     }
     
     try:
@@ -246,38 +247,13 @@ def run_chain(macros, data_list):
             return json.loads(response.read())['choices'][0]['message']['content']
     except Exception as e: return json.dumps({"market_memo": f"Error: {e}", "sector_analysis": "Unavailable"})
 
-# --- UPDATE MAIN HANDLER TO SAVE AS JSON ---
-def lambda_handler(event, context):
-    macros = get_macro_data()
-    data_list = get_todays_data()
-    
-    fetch_and_save_history()
-    if data_list: calculate_analytics(data_list)
-    
-    if data_list:
-        report_json = run_chain(macros, data_list) # Returns a JSON string
-        
-        # KEY CHANGE: Save as .json instead of .txt
-        s3.put_object(
-            Bucket=BUCKET_NAME, 
-            Key=f"reports/ai_analysis_{str(datetime.date.today())}.json", 
-            Body=report_json, 
-            ContentType='application/json'
-        )
-        
-        # ... (SQS Alert Logic: You might want to parse the JSON here to send just the 'market_memo' in the email) ...
-        
-        return {'statusCode': 200, 'body': "Report Generated"}
-    
-    return {'statusCode': 200, 'body': "No data found"}
-    
 # --- SMS / EMAIL NOTIFIER ---
 def send_text_alert(report_content):
     if not SQS_QUEUE_URL:
-        print("⚠️ No SQS configured. Skipping alert.")
+        logger.info("⚠️ No SQS configured. Skipping alert.")
         return
 
-    print("📱 Queuing Notification...")
+    logger.info("📱 Queuing Notification...")
     
     message_body = {
         "subject": "New Bond Analyst Report Available",
@@ -290,9 +266,9 @@ def send_text_alert(report_content):
             QueueUrl=SQS_QUEUE_URL,
             MessageBody=json.dumps(message_body)
         )
-        print("SUCCESS: Notification message placed in SQS queue.")
+        logger.info("SUCCESS: Notification message placed in SQS queue.")
     except Exception as e:
-        print(f"ERROR publishing to SQS: {e}")
+        logger.exception("ERROR publishing to SQS: %s", e)
 
 # --- MAIN HANDLER ---
 def lambda_handler(event, context):
@@ -303,15 +279,20 @@ def lambda_handler(event, context):
     fetch_and_save_history()
     
     # 2. Update Charts (Bond Regression)
-    if data_list: calculate_analytics(data_list)
+    if data_list: 
+        calculate_analytics(data_list)
     
-    # 3. Generate AI Report
+    # 3. Generate AI Report and persist to S3
     if data_list:
         report = run_chain(macros, data_list)
-        s3.put_object(Bucket=BUCKET_NAME, Key=f"reports/ai_analysis_{str(datetime.date.today())}.txt", Body=report, ContentType='text/plain')     
-    # 4. SEND MESSAGE TO SQS ---
-    if data_list: 
-      send_text_alert(report)            
-    return {'statusCode': 200, 'body': report}
+        s3.put_object(
+            Bucket=BUCKET_NAME, 
+            Key=f"reports/ai_analysis_{str(datetime.date.today())}.json", 
+            Body=report, 
+            ContentType='application/json'
+        )
+        # 4. SEND MESSAGE TO SQS
+        send_text_alert(report)
+        return {'statusCode': 200, 'body': report}
    
     return {'statusCode': 200, 'body': "No data found"}

@@ -130,16 +130,64 @@
                 new Chart(document.getElementById('sectorChart'), { type: 'line', data: { datasets: getSets(SECTORS) } });
             });
 
-        // 3. Scatter Chart
+       // 3. Scatter Chart
         fetch(`https://${BUCKET_DOMAIN}/dashboard_data.json`)
-            .then(r => r.json())
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
             .then(d => {
+                if (!d.scatter_points || !Array.isArray(d.scatter_points)) {
+                    console.warn('Invalid scatter_points data');
+                    return;
+                }
+
+                // FIX: Map the specific keys (Duration/Yield) to standard Chart.js (x/y) format
+                const plotPoints = d.scatter_points.map(p => ({
+                    x: p.Duration, 
+                    y: p.Yield,
+                    label: p.Ticker // Custom property we can use in tooltips
+                }));
+
                 new Chart(document.getElementById('scatterChart'), {
                     type: 'scatter',
-                    data: { datasets: [{ label: 'Bonds', data: d.scatter_points, backgroundColor: '#2980b9' }] },
-                    options: { scales: { x: { title: {display:true, text:'Duration'} }, y: { title: {display:true, text:'Yield'} } } }
+                    data: {
+                        datasets: [{
+                            label: 'Bond Valuation',
+                            data: plotPoints, // Use the mapped data here
+                            borderColor: '#2980b9',
+                            backgroundColor: 'rgba(41, 128, 185, 0.6)', // Increased opacity so dots are visible
+                            borderWidth: 1,
+                            pointRadius: 6 // Made dots slightly larger
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    // Custom Tooltip to show Ticker Name
+                                    label: function(context) {
+                                        const point = context.raw;
+                                        return `${point.label}: ${point.y}% Yield / ${point.x}yr Dur`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { 
+                                title: { display: true, text: 'Duration (Years)' },
+                                beginAtZero: true 
+                            },
+                            y: { 
+                                title: { display: true, text: 'Yield (%)' } 
+                            }
+                        }
+                    }
                 });
-            });
+            })
+            .catch(e => console.error('Failed to load scatter chart:', e));
 
 // 4. Fund Cards
         const grid = document.getElementById('fund-container');
