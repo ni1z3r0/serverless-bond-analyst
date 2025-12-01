@@ -214,7 +214,7 @@
                 // Optional: Show error on the card if data fails
                 // document.getElementById('scatterChart').parentElement.innerHTML = '<p style="color: #e74c3c;">Failed to load chart.</p>';
             });
-            
+
         // 4. Fund Cards
         const grid = document.getElementById('fund-container');
         
@@ -234,11 +234,12 @@
             "IYH": "U.S. Healthcare"
         };
 
-        ALL.forEach(async t => {
+ALL.forEach(async t => {
             try {
                 const res = await fetch(`https://${BUCKET_DOMAIN}/data/${t}_${today}.json`);
                 if(!res.ok) return;
                 const d = await res.json();
+                
                 const price = d.Price && d.Price !== "N/A" ? `$${d.Price}` : "";
                 const fullName = FUND_NAMES[t] || t; 
                 
@@ -246,7 +247,33 @@
                 if(SECTORS.includes(t)) typeClass = 'sector';
                 if(BONDS.includes(t)) typeClass = 'bond';
 
-                grid.innerHTML += `
+                let html = "";
+                
+                if (typeClass === 'bond') {
+                    // --- BOND CARD (Now with Convexity & Coupon) ---
+                    html = `
+                    <div class="fund-card bond">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                            <span class="ticker">${t}</span>
+                            <span style="font-weight:bold; color:#666;">${price}</span>
+                        </div>
+                        <div style="font-size:0.8rem; color:#888; margin-bottom:8px; font-style:italic; height:30px; overflow:hidden; text-overflow:ellipsis;">
+                            ${fullName}
+                        </div>
+                        
+                        <div style="display:flex; justify-content:space-between; border-bottom:1px solid #eee; padding-bottom:5px; margin-bottom:5px;">
+                            <span style="color:var(--green); font-weight:800;">${d.Yield}% <small>SEC</small></span>
+                            <span style="color:#555; font-weight:600;">${d.YTM || '-'}% <small>YTM</small></span>
+                        </div>
+                        
+                        <div class="stat-row"><span>Duration:</span> <b>${d.Duration} yrs</b></div>
+                        <div class="stat-row"><span>Convexity:</span> <b>${d.Convexity || '-'}</b></div>
+                        <div class="stat-row"><span>Coupon:</span> <b>${d.Coupon || '-'}%</b></div>
+                        <div class="stat-row"><span>OAS:</span> <b>${d.OAS} bps</b></div>
+                    </div>`;
+                } else {
+                    // --- EQUITY CARD (Now with Std Dev) ---
+                    html = `
                     <div class="fund-card ${typeClass}">
                         <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
                             <span class="ticker">${t}</span>
@@ -255,12 +282,20 @@
                         <div style="font-size:0.8rem; color:#888; margin-bottom:8px; font-style:italic; height:30px; overflow:hidden; text-overflow:ellipsis;">
                             ${fullName}
                         </div>
-                        <span class="big-val">${d.Yield ? d.Yield + '%' : d.PE_Ratio + 'x'}</span>
-                        <div class="stat-row"><span>${d.Yield ? 'Dur' : 'Beta'}:</span> <b>${d.Duration || d.Beta}</b></div>
+                        
+                        <span class="big-val">${d.PE_Ratio}x <small>P/E</small></span>
+                        
+                        <div class="stat-row"><span>Beta (3y):</span> <b>${d.Beta}</b></div>
+                        <div class="stat-row"><span>Std Dev:</span> <b>${d.Std_Dev || '-'}%</b></div>
+                        <div class="stat-row"><span>Div Yield:</span> <b>${d.Div_Yield || 'N/A'}%</b></div>
+                        <div class="stat-row"><span>P/B Ratio:</span> <b>${d.Price_Book}</b></div>
                     </div>`;
+                }
+
+                grid.innerHTML += html;
             } catch(e) {}
         });
-
+        
         // Tab Logic
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
