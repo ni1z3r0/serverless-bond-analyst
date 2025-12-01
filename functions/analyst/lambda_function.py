@@ -49,31 +49,60 @@ def get_macro_data():
                 data = json.loads(content)
                 return float(data['chart']['result'][0]['meta']['regularMarketPrice'])
         except Exception as e:
-            logger.exception("Failed to fetch DXY from Yahoo")
+            # Assumes you have 'logger' defined globally or imported, otherwise use print
+            print(f"Failed to fetch DXY from Yahoo: {e}")
             return None
 
-    def get_fred(id):
+    # Modified to accept a limit for history fetching
+    def get_fred_series(id, limit=1):
         try:
-            url = f"https://api.stlouisfed.org/fred/series/observations?series_id={id}&api_key={FRED_API_KEY}&file_type=json&sort_order=desc&limit=1"
+            url = f"https://api.stlouisfed.org/fred/series/observations?series_id={id}&api_key={FRED_API_KEY}&file_type=json&sort_order=desc&limit={limit}"
             with urllib.request.urlopen(url) as response:
                 data = json.loads(response.read().decode('utf-8'))
-                val = data['observations'][0]['value']
-                return float(val) if val != "." else None
+                observations = data['observations']
+                
+                # If requesting just 1, return the float value (backward compatibility)
+                if limit == 1:
+                    if not observations:
+                        return None
+                    val = observations[0]['value']
+                    return float(val) if val != "." else None
+                
+                # Otherwise return the full list
+                return observations
         except Exception as e:
-            logger.exception("Failed to fetch FRED series %s", id)
-            return None
+            print(f"Failed to fetch FRED series {id}: {e}")
+            return None if limit == 1 else []    # 1. Standard Macros (Latest)
+    us10y = get_fred_series('DGS10')
+    us02y = get_fred_series('DGS2')
+    
+    # 2. Labor Market Deep Dive (New)
+    # UNRATE: Unemployment Rate (Last 60 months = 5 years)
+    unrate_raw = get_fred_series('UNRATE', limit=60)
+    
+    # JTSLDL: Total Layoffs & Discharges (Last 12 months)
+    layoffs_raw = get_fred_series('JTSLDL', limit=12)
 
-    us10y, us02y = get_fred('DGS10'), get_fred('DGS2')
     macros = {
         "DXY": get_dxy(), 
         "US10Y": us10y, 
-        "Breakeven_5Y": get_fred('T5YIE'), 
+        "Breakeven_5Y": get_fred_series('T5YIE'), 
         "Date": str(datetime.date.today())
     }
     
+    # Add calculated spreads
     if us10y and us02y:
         macros['Curve_Spread'] = round(us10y - us02y, 2)
         macros['Is_Bear_Steepener'] = (us10y - us02y) > 0.60
+
+    # Add History Data for AI
+    if unrate_raw:
+        macros["Current_Unemployment"] = unrate_raw[0]['value']
+        # Sample every 12th month to give the AI a clear 5-year trend without token bloat
+        macros["Unemployment_Trend"] = [ {'date': x['date'], 'rate': x['value']} for x in unrate_raw[::12] ]
+        
+    if layoffs_raw:
+        macros["Layoffs_Last_12M"] = [ {'date': x['date'], 'value': x['value']} for x in layoffs_raw ]
         
     return macros
 
@@ -163,43 +192,66 @@ def calculate_analytics(todays_data):
     dashboard_data = {'scatter_points': points, 'regression': {'slope': slope, 'intercept': intercept}}
     s3.put_object(Bucket=BUCKET_NAME, Key="dashboard_data.json", Body=json.dumps(dashboard_data), ContentType='application/json')
 
-# 6. AI CHAIN
+# 6. AI CHAIN (The "Buffett" Persona)
 def run_chain(macros, data_list):
     print("⛓️ Running AI Chain...")
     
-    # Sort data for the prompt
+    # 1. Bucket the data types
     bonds = [d for d in data_list if d.get('Type') == 'bond']
     equities = [d for d in data_list if d.get('Type') == 'equity']
+    sectors = [d for d in data_list if d.get('Type') == 'sector'] # New Sector Bucket
     
-    # Prompt Construction
+    # 2. Construct the Contrarian Prompt
     prompt = f"""
-    ROLE: CIO managing a Multi-Asset Portfolio.
+    ROLE: You are an Elite Value Investor (Persona: Warren Buffett meets Howard Marks). 
+    You are contrarian, patient, and skeptical of "herd mentality." You buy when others are fearful and sell when they are greedy.
     
-    --- MACRO DASHBOARD ---
-    DXY: {macros.get('DXY')}
+    --- MACRO CONTEXT (The Economic Cycle) ---
     10Y Treasury: {macros.get('US10Y')}%
-    10-2 Spread: {macros.get('Curve_Spread')}%
-    Inflation Breakeven: {macros.get('Breakeven_5Y')}%
+    Yield Curve (10-2): {macros.get('Curve_Spread')}% (Recession signal if < 0)
+    Inflation Breakeven (5Y): {macros.get('Breakeven_5Y')}%
     
-    --- BOND HOLDINGS (Yield & Duration) ---
-    {json.dumps(bonds, indent=1)}
+    --- LABOR MARKET HEALTH (The Engine) ---
+    Current Unemployment: {macros.get('Current_Unemployment')}%
+    5-Year Unemployment Trend (Annual Snapshots): {json.dumps(macros.get('Unemployment_Trend'))}
+    Recent Layoffs (Monthly Data in Thousands): {json.dumps(macros.get('Layoffs_Last_12M'))}
     
-    --- EQUITY HOLDINGS (Valuation & Beta) ---
-    {json.dumps(equities, indent=1)}
+    --- SECTOR VALUATIONS (Look for Disparities) ---
+    {json.dumps(sectors, indent=1)}
+    
+    --- BROAD HOLDINGS ---
+    Equities: {json.dumps(equities, indent=1)}
+    Bonds: {json.dumps(bonds, indent=1)}
     
     --- MISSION ---
-    1. MACRO REGIME: Define the current cycle (e.g. "Late Cycle", "Goldilocks").
-    2. BOND STRATEGY: Given the Yield Curve ({macros.get('Curve_Spread')}%), should we prefer HYG (Credit) or IEI (Duration)?
-    3. EQUITY STRATEGY: Analyze valuations. Is IWM (Small Cap) or EEM (Emerging) showing stress?
-    4. ACTION PLAN: Provide 3 clear bullet points for trades.
+    Write a memo to your Investment Committee. Do not use generic AI fluff. Be opinionated.
+    
+    1. THE "HERD" NARRATIVE vs. REALITY:
+       What is the market currently pricing in? (e.g., "Soft Landing Perfection"). 
+       Compare this against the Labor Data above—are cracks forming beneath the surface that the herd is ignoring?
+       
+    2. SECTOR ANALYSIS (Margin of Safety):
+       Analyze the Sector ETFs. Is Tech (IYW) showing signs of euphoria compared to unloved sectors like Energy (IYE) or Financials (IYF)? 
+       Where is the value disconnect?
+       
+    3. THE CONTRARIAN PLAY:
+       Identify the trade that feels "uncomfortable" right now but is mathematically sound based on history.
+       (e.g., "Buying long-duration bonds (IEI/LQD) while inflation fear is still high" or "Buying Small Caps (IWM) if they are priced for armageddon").
+       
+    4. FINAL VERDICT:
+       Are we in a "Greedy" market (Be Fearful) or a "Fearful" market (Be Greedy)?
+       Provide 3 specific bullet points for asset allocation.
     """
     
-    # Call OpenAI
+    # 3. Call OpenAI
     url = "https://api.openai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
     payload = {
         "model": GPT_MODEL,
-        "messages": [{"role": "system", "content": "You are a Tactical CIO."}, {"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": "You are a contrarian value investor. You focus on valuations, cycles, and risk."}, 
+            {"role": "user", "content": prompt}
+        ],
         "temperature": 0.7
     }
     
@@ -208,6 +260,7 @@ def run_chain(macros, data_list):
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read())['choices'][0]['message']['content']
     except Exception as e: return f"AI Error: {e}"
+    
 # --- SMS / EMAIL NOTIFIER ---
 def send_text_alert(report_content):
     if not SQS_QUEUE_URL:
