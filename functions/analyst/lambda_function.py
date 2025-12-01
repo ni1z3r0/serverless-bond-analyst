@@ -282,24 +282,53 @@ def lambda_handler(event, context):
     macros = get_macro_data()
     data_list = get_todays_data()
     
-    # 1. Update History File (Add new equity prices)
+    # 1. Update History & Analytics
     fetch_and_save_history()
+    if data_list: calculate_analytics(data_list)
     
-    # 2. Update Charts (Bond Regression)
-    if data_list: 
-        calculate_analytics(data_list)
-    
-    # 3. Generate AI Report and persist to S3
     if data_list:
-        report = run_chain(macros, data_list)
+        # 2. Generate AI Report
+        report_json_str = run_chain(macros, data_list) 
+        
+        # 3. Save full JSON to S3
         s3.put_object(
             Bucket=BUCKET_NAME, 
             Key=f"reports/ai_analysis_{str(datetime.date.today())}.json", 
-            Body=report, 
+            Body=report_json_str, 
             ContentType='application/json'
         )
-        # 4. SEND MESSAGE TO SQS
-        send_text_alert(report)
-        return {'statusCode': 200, 'body': report}
-   
+        
+        # --- SQS PAYLOAD GENERATION ---
+        try:
+            report_data = json.loads(report_json_str)
+            email_text = report_data.get("market_memo", "Report generated successfully.")
+        except:
+            email_text = "Report generated (Raw Data)."
+
+        # Dynamic URL
+        dashboard_url = f"https://{BUCKET_NAME}.s3.us-east-1.amazonaws.com/index.html"
+        final_message = f"{email_text}\n\n-----------------\n📊 View Live Dashboard:\n{dashboard_url}"
+
+        # FIX: Use the existing global TARGET_EMAIL variable
+        if not TARGET_EMAIL:
+            print("⚠️ Error: TARGET_EMAIL environment variable is missing.")
+            return {'statusCode': 500, 'body': "Configuration Error: Missing Target Email"}
+
+        message_body = {
+            "subject": "Daily Market Memo (AI)",
+            "recipient": TARGET_EMAIL, 
+            "report_summary": final_message
+        }
+        
+        try:
+            sqs_client.send_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MessageBody=json.dumps(message_body)
+            )
+            print(f"SUCCESS: Notification sent to SQS for {TARGET_EMAIL}.")
+        except Exception as e:
+            print(f"ERROR publishing to SQS: {e}")
+        
+        return {'statusCode': 200, 'body': "Report Generated & Sent"}
+    
     return {'statusCode': 200, 'body': "No data found"}
