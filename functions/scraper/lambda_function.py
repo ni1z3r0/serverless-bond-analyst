@@ -41,80 +41,54 @@ def get_config():
 
 
 def scrape_ishares_page(fund):
-    # Validate input early to avoid KeyError for malformed entries
-    if not isinstance(fund, dict):
-        logger.error("Invalid fund entry: expected dict, got %s", type(fund))
-        return None
-
-    ticker = fund.get('ticker')
-    url = fund.get('url')
-
-    if not ticker or not isinstance(ticker, str):
-        logger.error("Fund entry missing or invalid 'ticker': %r", fund)
-        return None
-
-    if not url or not isinstance(url, str):
-        logger.error("Fund entry missing or invalid 'url' for ticker %s: %r", ticker, fund)
-        return None
-
-    logger.info("Fetching %s...", ticker)
-    # First, fetch the page and handle network-related errors explicitly so we can continue
+    ticker = fund['ticker']
+    print(f"Fetching {ticker}...")
+    
     try:
         req = urllib.request.Request(
             fund['url'], 
             headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0'}
         )
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req) as response:
             content = response.read().decode('utf-8', errors='ignore')
-    except urllib.error.HTTPError as he:
-        logger.exception("HTTP error fetching %s: %s", ticker, he)
-        return None
-    except urllib.error.URLError as ue:
-        logger.exception("URL error fetching %s: %s", ticker, ue)
-        return None
-    except socket.timeout as te:
-        logger.exception("Timeout fetching %s: %s", ticker, te)
-        return None
 
-    # If fetch succeeded, continue parsing; if parsing raises unexpected exceptions, log and re-raise
-    try:
-        # Clean Text
+        # Clean Text: Remove HTML tags and excessive whitespace
         text = re.sub(r'<[^>]+>', ' ', content)
-        text = re.sub(r'as of [A-Za-z]+ \d{1,2}, \d{4}', ' ', text)
-        text = re.sub(r'\s+', ' ', text) 
+        text = re.sub(r'&nbsp;', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
         
         stats = {'Ticker': ticker, 'Type': fund.get('type', 'bond'), 'Date': str(datetime.date.today())}
 
-        # --- UPDATED REGEX PATTERNS (MATCHING YOUR SCREENSHOT) ---
+        # --- IMPROVED REGEX PATTERNS ---
+        # We use [^0-9-]{0,50} to allow for up to 50 chars of junk between label and number
         if stats['Type'] == 'bond':
             patterns = {
-                'Yield': r'30\s*Day\s*SEC\s*Yield\s*[^0-9-]{0,20}([\d\.]+)',
-                'Duration': r'Effective\s*Duration\s*[^0-9-]{0,20}([\d\.]+)',
-                'OAS': r'Option\s*Adjusted\s*Spread\s*[^0-9-]{0,20}([\d\.]+)',
-                'Maturity': r'Weighted\s*Avg\s*Maturity\s*[^0-9-]{0,20}([\d\.]+)'
+                'Yield': r'30\s*Day\s*SEC\s*Yield\s*[^0-9-]{0,50}([\d\.]+)',
+                'Duration': r'Effective\s*Duration\s*[^0-9-]{0,50}([\d\.]+)',
+                'OAS': r'Option\s*Adjusted\s*Spread\s*[^0-9-]{0,50}([\d\.]+)',
+                'Maturity': r'Weighted\s*Avg\s*Maturity\s*[^0-9-]{0,50}([\d\.]+)'
             }
-        else: # Equity
+        else: 
             patterns = {
-                'PE_Ratio': r'P/E\s*Ratio\s*[^0-9-]{0,20}([\d\.]+)',
-                'Beta': r'Equity\s*Beta\s*\(3y\)\s*[^0-9-]{0,20}([\d\.]+)',
-                'Price_Book': r'P/B\s*Ratio\s*[^0-9-]{0,20}([\d\.]+)',
-                'Div_Yield': r'12m\s*Trailing\s*Yield\s*[^0-9-]{0,20}([\d\.]+)'
+                'PE_Ratio': r'P/E\s*Ratio\s*[^0-9-]{0,50}([\d\.]+)',
+                'Beta': r'Beta\s*[^0-9-]{0,50}([\d\.]+)', # Loosened "Equity Beta" to just "Beta"
+                'Price_Book': r'P/B\s*Ratio\s*[^0-9-]{0,50}([\d\.]+)',
+                'Div_Yield': r'12m\s*Trailing\s*Yield\s*[^0-9-]{0,50}([\d\.]+)'
             }
         
         for key, pattern in patterns.items():
             match = re.search(pattern, text, re.IGNORECASE)
             stats[key] = match.group(1) if match else "N/A"
 
-        # Price is common
-        price_match = re.search(r'\$\s*(\d+\.\d+)', text)
+        # Price Grab (Look for the first dollar sign followed by digits)
+        price_match = re.search(r'\$\s*(\d{2,5}\.\d{2})', text)
         stats['Price'] = price_match.group(1) if price_match else "N/A"
 
         return stats
-    except Exception as e:
-        # Unexpected parsing error — log and re-raise so it's visible
-        logger.exception("Unexpected error parsing content for %s", ticker)
-        raise
 
+    except Exception as e:
+        print(f"❌ Error scraping {ticker}: {str(e)}")
+        return None
 def lambda_handler(event, context):
     try:
         config = get_config()

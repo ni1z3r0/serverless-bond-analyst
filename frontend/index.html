@@ -29,7 +29,20 @@
 
         /* Metric Cards & Charts */
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; }
-        .fund-card { background: #fafbfc; border: 1px solid #eee; border-radius: 8px; padding: 15px; text-align: center; }
+        
+        /* UPDATED CARD CSS: Taller & Flexbox for better spacing */
+        .fund-card { 
+            background: #fafbfc; 
+            border: 1px solid #eee; 
+            border-radius: 8px; 
+            padding: 15px; 
+            text-align: center; 
+            min-height: 180px; /* Fixed height to fit all data rows */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
         .fund-card.bond { border-top: 4px solid var(--green); }
         .fund-card.equity { border-top: 4px solid var(--purple); }
         .fund-card.sector { border-top: 4px solid var(--orange); }
@@ -84,16 +97,16 @@
 
     <script>
         // CONFIG
-        const BUCKET_DOMAIN = "bond-dashboard-rc11292025.s3.amazonaws.com"; // Set your bucket here
+        const BUCKET_DOMAIN = "bond-dashboard-rc11292025.s3.amazonaws.com"; // Your Bucket
         const today = new Date().toISOString().split('T')[0];
 
         // ASSET LISTS
         const BONDS = ["HYG", "LQD", "IEI", "USIG", "CEMB"];
         const EQUITIES = ["IWM", "EEM", "IVV", "IWD"];
-        const SECTORS = ["IYW", "IYF", "IYE", "IYH"]; // New Sector List
+        const SECTORS = ["IYW", "IYF", "IYE", "IYH"];
         const ALL = [...BONDS, ...EQUITIES, ...SECTORS];
 
-        // 1. Load AI Report (JSON Logic)
+        // 1. Load AI Report
         fetch(`https://${BUCKET_DOMAIN}/reports/ai_analysis_${today}.json`)
             .then(r => r.json())
             .then(d => {
@@ -106,7 +119,7 @@
                 document.getElementById('sector-content').innerHTML = "No sector data yet.";
             });
 
-        // 2. Load Charts
+        // 2. Load Charts (History)
         const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6'];
         
         fetch(`https://${BUCKET_DOMAIN}/dashboard_history.json`)
@@ -124,75 +137,87 @@
                     };
                 }).filter(x=>x);
 
-                // Render all 3 charts
                 new Chart(document.getElementById('bondChart'), { type: 'line', data: { datasets: getSets(BONDS) } });
                 new Chart(document.getElementById('equityChart'), { type: 'line', data: { datasets: getSets(EQUITIES) } });
                 new Chart(document.getElementById('sectorChart'), { type: 'line', data: { datasets: getSets(SECTORS) } });
             });
 
-       // 3. Scatter Chart
+// 3. Scatter Chart (with Regression Line)
         fetch(`https://${BUCKET_DOMAIN}/dashboard_data.json`)
-            .then(r => {
-                if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                return r.json();
+            .then(r => { 
+                if (!r.ok) throw new Error(`HTTP ${r.status}`); 
+                return r.json(); 
             })
             .then(d => {
-                if (!d.scatter_points || !Array.isArray(d.scatter_points)) {
-                    console.warn('Invalid scatter_points data');
-                    return;
-                }
-
-                // FIX: Map the specific keys (Duration/Yield) to standard Chart.js (x/y) format
+                // 1. Prepare Dots (Bonds)
                 const plotPoints = d.scatter_points.map(p => ({
                     x: p.Duration, 
                     y: p.Yield,
-                    label: p.Ticker // Custom property we can use in tooltips
+                    label: p.Ticker 
                 }));
+
+                // 2. Prepare Regression Line (Fair Value)
+                // y = mx + b
+                const slope = d.regression.slope;
+                const intercept = d.regression.intercept;
+                
+                // Calculate start (x=0) and end (x=10) for the line
+                const linePoints = [
+                    { x: 0, y: intercept },
+                    { x: 10, y: slope * 10 + intercept }
+                ];
 
                 new Chart(document.getElementById('scatterChart'), {
                     type: 'scatter',
                     data: {
-                        datasets: [{
-                            label: 'Bond Valuation',
-                            data: plotPoints, // Use the mapped data here
-                            borderColor: '#2980b9',
-                            backgroundColor: 'rgba(41, 128, 185, 0.6)', // Increased opacity so dots are visible
-                            borderWidth: 1,
-                            pointRadius: 6 // Made dots slightly larger
-                        }]
+                        datasets: [
+                            {
+                                label: 'Fair Value',
+                                data: linePoints,
+                                type: 'line', // Draws the regression line
+                                borderColor: '#e74c3c',
+                                borderWidth: 2,
+                                pointRadius: 0, 
+                                borderDash: [5, 5] // Dashed style
+                            },
+                            {
+                                label: 'Bonds',
+                                data: plotPoints,
+                                backgroundColor: '#2980b9',
+                                pointRadius: 6
+                            }
+                        ]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        scales: {
+                            x: { title: {display:true, text:'Duration (Years)'}, type: 'linear', position: 'bottom' },
+                            y: { title: {display:true, text:'Yield (%)'} }
+                        },
                         plugins: {
                             tooltip: {
                                 callbacks: {
-                                    // Custom Tooltip to show Ticker Name
-                                    label: function(context) {
-                                        const point = context.raw;
-                                        return `${point.label}: ${point.y}% Yield / ${point.x}yr Dur`;
+                                    label: function(ctx) {
+                                        if(ctx.dataset.type === 'line') return ''; // No tooltip for the line
+                                        const p = ctx.raw;
+                                        return `${p.label}: ${p.y}% Yield`;
                                     }
                                 }
-                            }
-                        },
-                        scales: {
-                            x: { 
-                                title: { display: true, text: 'Duration (Years)' },
-                                beginAtZero: true 
-                            },
-                            y: { 
-                                title: { display: true, text: 'Yield (%)' } 
                             }
                         }
                     }
                 });
             })
-            .catch(e => console.error('Failed to load scatter chart:', e));
-
-// 4. Fund Cards
+            .catch(e => {
+                console.error('Scatter chart data error:', e);
+                // Optional: Show error on the card if data fails
+                // document.getElementById('scatterChart').parentElement.innerHTML = '<p style="color: #e74c3c;">Failed to load chart.</p>';
+            });
+            
+        // 4. Fund Cards
         const grid = document.getElementById('fund-container');
         
-        // MAPPING: Ticker -> Friendly Name
         const FUND_NAMES = {
             "HYG": "High Yield Corp Bond",
             "LQD": "Inv Grade Corp Bond",
@@ -215,7 +240,7 @@
                 if(!res.ok) return;
                 const d = await res.json();
                 const price = d.Price && d.Price !== "N/A" ? `$${d.Price}` : "";
-                const fullName = FUND_NAMES[t] || t; // Fallback to ticker if name missing
+                const fullName = FUND_NAMES[t] || t; 
                 
                 let typeClass = 'equity';
                 if(SECTORS.includes(t)) typeClass = 'sector';
