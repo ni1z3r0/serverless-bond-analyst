@@ -99,18 +99,14 @@ def scrape_ishares_page(fund):
         return None
     
 def lambda_handler(event, context):
-    try:
-        config = get_config()
-    except Exception as e:
-        logger.exception("Config retrieval failed")
-        return {'statusCode': 500, 'body': "Internal server error"}
-
-    if not config:
-        return {'statusCode': 400, 'body': "Config is empty"}
-    # Build a summary of fetched items
-    summary = ''
+    config = get_config()
+    if not config: return {'statusCode': 500, 'body': "Config Missing"}
+    
+    summary = ""
     for fund in config:
-        stats = scrape_ishares_page(fund)
+        # Create a FRESH dictionary for every single fund
+        stats = scrape_ishares_page(fund) 
+        
         if stats:
             s3.put_object(
                 Bucket=BUCKET_NAME, 
@@ -119,5 +115,7 @@ def lambda_handler(event, context):
                 ContentType='application/json'
             )
             summary += f"✅ {fund['ticker']}: {stats.get('Price')}\n"
+        else:
+            summary += f"❌ {fund['ticker']}: Failed\n"
             
     return {'statusCode': 200, 'body': summary}

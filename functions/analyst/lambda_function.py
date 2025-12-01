@@ -174,20 +174,27 @@ def calculate_analytics(todays_data):
             except Exception as e:
                 logger.exception("Failed to parse bond record for analytics: %s", d)
                 continue
-            
+    
     slope, intercept = 0, 0
     n = len(points)
+    
     if n > 1:
         sum_x = sum(p['Duration'] for p in points)
         sum_y = sum(p['Yield'] for p in points)
         sum_xy = sum(p['Duration'] * p['Yield'] for p in points)
         sum_xx = sum(p['Duration'] ** 2 for p in points)
-        try:
-            slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x**2)
-            intercept = (sum_y - slope * sum_x) / n
-        except Exception as e:
-            logger.exception("Regression calculation failed")
-            pass
+        
+        # FIX: Calculate denominator first to check for zero
+        denominator = (n * sum_xx - sum_x**2)
+        
+        if denominator != 0:
+            try:
+                slope = (n * sum_xy - sum_x * sum_y) / denominator
+                intercept = (sum_y - slope * sum_x) / n
+            except Exception as e:
+                print(f"Regression math error: {e}")
+        else:
+            print("⚠️ Variance is zero (all Durations are identical). Cannot calculate slope.")
 
     dashboard_data = {'scatter_points': points, 'regression': {'slope': slope, 'intercept': intercept}}
     s3.put_object(Bucket=BUCKET_NAME, Key="dashboard_data.json", Body=json.dumps(dashboard_data), ContentType='application/json')
