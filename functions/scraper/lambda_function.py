@@ -24,13 +24,9 @@ def get_config():
 def extract_with_ai(ticker, text, fund_type):
     print(f"🤖 AI Extracting (Structured): {ticker}...")
     
-    # 1. Define strict Schemas
-    # CRITICAL FIX: In 'strict: True' mode, ALL properties must be required.
-    # We handle missing data by allowing the value to be null, not by omitting the key.
-    
+    # 1. Define strict Schemas (Same as before)
     if fund_type == 'bond':
         schema_name = "bond_fund_metrics"
-        # All keys defined below must be in the 'required' list
         keys = ["Price", "Yield", "Duration", "OAS", "YTM", "Coupon", "Maturity", "Convexity"]
         schema_definition = {
             "type": "object",
@@ -44,7 +40,7 @@ def extract_with_ai(ticker, text, fund_type):
                 "Maturity": { "type": ["number", "null"], "description": "Weighted Average Maturity in years." },
                 "Convexity": { "type": ["number", "null"], "description": "Convexity." }
             },
-            "required": keys, # <--- FIX: All keys are now mandatory
+            "required": keys, 
             "additionalProperties": False
         }
     else:
@@ -60,7 +56,7 @@ def extract_with_ai(ticker, text, fund_type):
                 "Div_Yield": { "type": ["number", "null"], "description": "12m Trailing Dividend Yield in percent." },
                 "Std_Dev": { "type": ["number", "null"], "description": "Standard Deviation (3y) in percent." }
             },
-            "required": keys, # <--- FIX: All keys are now mandatory
+            "required": keys,
             "additionalProperties": False
         }
 
@@ -69,10 +65,12 @@ def extract_with_ai(ticker, text, fund_type):
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
     
     payload = {
-        "model": "gpt-4o-2024-08-06", # Required model for Structured Outputs
+        # COST FIX: Switched from 'gpt-4o-2024-08-06' to 'gpt-4o-mini'
+        # gpt-4o-mini is ~95% cheaper and supports Structured Outputs
+        "model": "gpt-4o-mini", 
         "messages": [
             {"role": "system", "content": "Extract data. Return null if not found."}, 
-            {"role": "user", "content": text[:15000]} # Reduced context slightly to help rate limits
+            {"role": "user", "content": text[:15000]} 
         ],
         "response_format": {
             "type": "json_schema",
@@ -94,7 +92,7 @@ def extract_with_ai(ticker, text, fund_type):
     except Exception as e:
         print(f"AI Extraction Failed for {ticker}: {e}")
         return None
-
+    
 def scrape_ishares_page(fund):
     ticker = fund['ticker']
     print(f"Fetching HTML for {ticker}...")

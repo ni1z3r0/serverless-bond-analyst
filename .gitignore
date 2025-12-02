@@ -22,3 +22,4 @@ dashboard_data.json
 CEMB_2025-11-29.json
 data/*.json
 reports/*.txt
+node_modules

@@ -53,6 +53,42 @@
         
         .chart-box { height: 280px; width: 100%; position: relative; }
     </style>
+    <script>
+        // --- COGNITO CONFIGURATION ---
+        // 1. DOMAIN: Found in User Pool > App Integration > Domain name
+        const COGNITO_DOMAIN = "https://bond-analyst-rcampos.auth.us-east-1.amazoncognito.com"; 
+        
+        // 2. CLIENT ID: Found in User Pool > App Integration > App client list
+        const CLIENT_ID = "2hal73i1fbnr44n2mjkg8j2h8m"; 
+        
+        // 3. REDIRECT: Must match your CloudFront URL exactly (HTTPS)
+        const REDIRECT_URI = "https://d269ewi535s8ar.cloudfront.net/index.html";
+
+        // --- AUTHENTICATION LOGIC ---
+        
+        // A. Check if we are coming back from a login (URL has #id_token=...)
+        const hash = window.location.hash;
+        if (hash && hash.includes("id_token")) {
+            const params = new URLSearchParams(hash.replace("#", "?"));
+            const token = params.get("id_token");
+            if (token) {
+                // Save the "Entry Ticket" to the browser's pocket (Session Storage)
+                sessionStorage.setItem("bond_auth_token", token);
+                // Clean the URL (remove the ugly token from the address bar)
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+
+        // B. Check if the user has a ticket in their pocket
+        const token = sessionStorage.getItem("bond_auth_token");
+        
+        if (!token) {
+            // C. NO TICKET? KICK THEM OUT!
+            // Redirect to the AWS Login Page
+            const loginUrl = `${COGNITO_DOMAIN}/login?client_id=${CLIENT_ID}&response_type=token&scope=email+openid&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+            window.location.href = loginUrl;
+        }
+    </script>
 </head>
 <body>
 
@@ -97,7 +133,7 @@
 
     <script>
         // CONFIG
-        const BUCKET_DOMAIN = "YOURBUCKET.s3.amazonaws.com"; // Your Bucket
+        const BUCKET_DOMAIN = "YOURBUCKET.s3.amazonaws.com"; // TO DO: CHANGE TO Your Bucket NAME
         const today = new Date().toISOString().split('T')[0];
 
         // ASSET LISTS
