@@ -50,6 +50,43 @@
         
         .auth-info { position: fixed; top: 10px; right: 10px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 0.85rem; }
         .auth-info button { margin-left: 10px; padding: 5px 10px; cursor: pointer; }
+
+                /* --- Footer Styling --- */
+        .dashboard-footer {
+            margin-top: 40px;
+            padding: 25px 0;
+            border-top: 1px solid #e1e4e8;
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .footer-links {
+            margin-bottom: 10px;
+        }
+
+        .footer-links a {
+            color: var(--blue);
+            text-decoration: none;
+            margin: 0 10px;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: #999;
+        }
+
+        .status-badge {
+            vertical-align: middle;
+            opacity: 0.9;
+            transition: opacity 0.2s;
+        }
+        .status-badge:hover { opacity: 1; }
     </style>
 </head>
 <body>
@@ -57,6 +94,10 @@
 
     <h1 style="color: #2c3e50;">🛡️ Multi-Asset Command Center</h1>
     
+    <div style="text-align: center; padding: 10px; background-color: #f0f0f0; border-bottom: 1px solid #ccc; font-family: sans-serif; color: #555; font-size: 0.9em;">
+    <span id="next-update-text">Loading update schedule...</span>
+</div>
+
     <div class="dashboard-grid">
         <div class="card">
             <div class="tab-container">
@@ -93,7 +134,23 @@
         <h2>📊 Live Portfolio Metrics</h2>
         <div id="fund-container" class="metrics-grid"></div>
     </div>
+    <footer class="dashboard-footer">
+    
+    <div>
+        &copy; 2025 Multi-Asset Command Center. Internal Use Only.
+    </div>
 
+    <div class="system-status">
+        <span>System Status: <strong>Operational</strong></span>
+        <span>|</span>
+        <span>Spec 0 Runtime:</span>
+        
+        <a href="https://endoflife.date/python" target="_blank" title="View Stable Version Lifecycle">
+        <img class="status-badge" alt="Spec 0 Python Version" 
+         src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fendoflife.date%2Fapi%2Fpython.json&query=%24%5B2%5D.latest&label=Spec%200%20Runtime&color=27ae60&style=flat-square&logo=python&logoColor=white">
+        </a>
+    </div>
+</footer>
     <script>
         // ========================================
         // COGNITO CONFIGURATION
@@ -518,7 +575,34 @@
         }
 
         // Start authentication flow on page load
-        handleAuth();
+        //handleAuth();
     </script>
+
+    
+
+<script>
+    (function() {
+        // SETTINGS: 19:00 UTC (which is 1:00 PM CST)
+        const updateHourUTC = 19; 
+        
+        const now = new Date();
+        let nextUpdate = new Date();
+        
+        // Set target to 19:00 UTC (1 PM CST) today
+        nextUpdate.setUTCHours(updateHourUTC, 0, 0, 0);
+
+        // If we have passed 1 PM CST today, set target to tomorrow
+        if (now > nextUpdate) {
+            nextUpdate.setDate(nextUpdate.getDate() + 1);
+        }
+
+        const timeString = nextUpdate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const isToday = nextUpdate.getDate() === now.getDate();
+        const dateLabel = isToday ? "Today" : "Tomorrow";
+
+        document.getElementById('next-update-text').innerHTML = 
+            "Next update: <strong>" + dateLabel + " at " + timeString + "</strong>";
+    })();
+</script>
 </body>
 </html>
