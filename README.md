@@ -123,7 +123,6 @@ Ensure roles have least-privilege S3 Put/Get access to the specific keys the fun
 
 ---
 
-If you'd like, I can also create a short `deploy.sh` or PowerShell script that bundles and deploys the three Lambdas with example IAM role ARNs and environment variables.
 ## 📈 Architecture Diagram
 ```mermaid
 graph LR
