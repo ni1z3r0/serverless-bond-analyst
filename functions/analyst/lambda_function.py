@@ -306,7 +306,7 @@ def lambda_handler(event, context):
             email_text = "Report generated (Raw Data)."
 
         # Dynamic URL
-        dashboard_url = f"https://{BUCKET_NAME}.s3.us-east-1.amazonaws.com/index.html"
+        dashboard_url = f"https://d269ewi535s8ar.cloudfront.net/index.html"
         final_message = f"{email_text}\n\n-----------------\n📊 View Live Dashboard:\n{dashboard_url}"
 
         # FIX: Use the existing global TARGET_EMAIL variable
