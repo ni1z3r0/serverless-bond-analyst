@@ -2,6 +2,7 @@
 
 ![Build Status](https://img.shields.io/badge/status-draft-orange)
 ![Language](https://img.shields.io/badge/language-Python%20%2B%20JS-blue)
+![Built with](https://img.shields.io/badge/Built%20with-Google%20Antigravity-4285F4)
 
 An automated, event-driven financial dashboard that scrapes market data, performs quantitative regression analysis, and uses GPT-4o to generate "CIO-style" daily strategy reports.
 
@@ -57,6 +58,7 @@ See the Deployment section below for full environment variables per function.
 * **Self-Healing:** If the email service fails, messages persist in SQS for retry.
 * **AI Data Extraction:** Uses LLMs to scrape complex financial metrics (Convexity, OAS) that standard Regex misses.
 * **Cost Efficient:** Runs entirely on AWS Free Tier.
+* **Smart RAG:** Locally manages thousands of articles for AI context with zero vector DB costs.
 * **Automated:** Zero manual intervention required; runs on a daily cron schedule.
 
 ## 🔧 Deployment & Configuration
@@ -140,6 +142,14 @@ graph LR
         
         %% The Critical Link: Analyst updates S3 with processed data
         Analyst -.->|Save Dashboard JSON| S3
+        Analyst -.->|Read Context| Context[(Context Index)]
+    end
+
+    subgraph "Context Layer (Local)"
+        direction TB
+        CLI[💻 manage_context.py] -->|Scrape & Embed| Context[index.faiss + metadata.json]
+        CLI -->|Upload| S3
+    end
     end
 
     subgraph "Delivery Layer"

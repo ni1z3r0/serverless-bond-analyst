@@ -1,0 +1,7 @@
+boto3
+sentence-transformers
+faiss-cpu
+requests
+beautifulsoup4
+numpy
+python-dotenv

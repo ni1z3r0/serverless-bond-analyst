@@ -199,9 +199,51 @@ def calculate_analytics(todays_data):
     dashboard_data = {'scatter_points': points, 'regression': {'slope': slope, 'intercept': intercept}}
     s3.put_object(Bucket=BUCKET_NAME, Key="dashboard_data.json", Body=json.dumps(dashboard_data), ContentType='application/json')
 
+# 5b. CONTEXT RETRIEVAL (Zero-Cost RAG)
+def get_article_context(market_keywords_text):
+    print("📚 Fetching Analyst Context...")
+    try:
+        # Download Indexes
+        meta_obj = s3.get_object(Bucket=BUCKET_NAME, Key="context/metadata.json")
+        keys_obj = s3.get_object(Bucket=BUCKET_NAME, Key="context/keywords.json")
+        
+        metadata = json.loads(meta_obj['Body'].read())
+        keyword_map = json.loads(keys_obj['Body'].read())
+        
+        # Simple Keyword Matching
+        # We tokenize the "market text" (e.g. standard macros)
+        tokens = market_keywords_text.lower().replace('.', ' ').split()
+        
+        scores = {}
+        for t in tokens:
+            if len(t) > 3 and t in keyword_map:
+                for doc_id in keyword_map[t]:
+                    scores[doc_id] = scores.get(doc_id, 0) + 1
+                    
+        # Top 5 Articles
+        top_ids = sorted(scores, key=scores.get, reverse=True)[:5]
+        
+        context_str = ""
+        for m in metadata:
+            if m['id'] in top_ids:
+                context_str += f"\n---\nTitle: {m['source']} ({m['date_added']})\n{m['content']}\n"
+                
+        if context_str:
+            print(f"✅ Found {len(top_ids)} relevant articles.")
+            return f"\n\n--- ANALYST BRIEFING MATERIALS (YOUR ARCHIVED CONTEXT) ---\n{context_str}\n"
+            
+    except Exception as e:
+        print(f"⚠️ Context retrieval failed (First run?): {e}")
+        
+    return ""
+
 # 6. AI CHAIN (JSON Output Version)
 def run_chain(macros, data_list):
     print("⛓️ Running AI Chain...")
+    
+    # Generate Context Key (String representation of macros for keyword matching)
+    macro_text = f"Market {macros.get('US10Y')} Unemployment {macros.get('Current_Unemployment')} {json.dumps(macros)}"
+    custom_context = get_article_context(macro_text)
     
     bonds = [d for d in data_list if d.get('Type') == 'bond']
     equities = [d for d in data_list if d.get('Type') == 'equity']
@@ -213,8 +255,10 @@ def run_chain(macros, data_list):
     --- DATA SNAPSHOT ---
     10Y Treasury: {macros.get('US10Y')}% | Yield Curve: {macros.get('Curve_Spread')}%
     Unemployment Trend: {json.dumps(macros.get('Unemployment_Trend'))}
+    10Y Treasury: {macros.get('US10Y')}% | Yield Curve: {macros.get('Curve_Spread')}%
+    Unemployment Trend: {json.dumps(macros.get('Unemployment_Trend'))}
     Sector Valuations: {json.dumps(sectors, indent=1)}
-    
+    {custom_context}
     --- MISSION ---
     Generate two distinct reports in JSON format.
     
