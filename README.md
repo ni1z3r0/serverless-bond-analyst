@@ -7,114 +7,63 @@
 An automated, event-driven financial dashboard that scrapes market data, performs quantitative regression analysis, and uses GPT-4o to generate "CIO-style" daily strategy reports.
 
 ## 🏗️ Architecture
-This project uses a **Decoupled Microservices Architecture** to ensure reliability and scalability.
+This project uses a **Serverless Microservices Architecture**, now fully managed via **AWS SAM (Serverless Application Model)** for robust Infrastructure-as-Code (IaC) deployment.
 
 **The Pipeline:**
-1.  **Ingestion:** A Python Lambda (Hybrid AI/Regex) scrapes daily yield/duration data for ETFs and stores it in an **S3 Data Lake**.
-2.  **Analysis:** An **S3 Event Trigger** wakes the Analyst Lambda *only* when the scraping batch is complete. It fetches live macro data (FRED API), calculates yield curve anomalies, and prompts **GPT-4o** to generate a written market summary.
-3.  **Reliability Buffer:** Instead of sending emails directly, the system pushes a JSON payload to an **SQS Queue**.
-4.  **Delivery:** A final Lambda consumes the queue and delivers the report via **AWS SES**.
-5.  **Visualization:** A static HTML/JS dashboard hosted in S3 fetches the raw data to render interactive charts and metrics.
+1.  **Ingestion (BondDataScraper):** A scheduled Python Lambda scrapes daily yield/duration data for ETFs and stores it in an **S3 Data Lake**.
+2.  **Analysis (BondAnalyst):** An **S3 Event Trigger** wakes the Analyst Lambda. It fetches live macro data (FRED API), calculates yield curve anomalies, and prompts **GPT-4o** to generate a written market summary.
+3.  **Chatbot (ChatAnalyst):** A RAG-enabled Lambda provides a conversational interface to the market data, secured by **Email-Based Access Control**.
+4.  **Delivery (EmailForwarder):** A final Lambda consumes an SQS Queue to deliver reports via **AWS SES** (decoupled for reliability).
+5.  **Visualization:** A static HTML/JS dashboard hosted in S3 (served via **CloudFront**) fetches the raw data to render interactive charts.
 
 ## 🛠️ Tech Stack
-* **Cloud:** AWS (Lambda, S3, SQS, SES, EventBridge, IAM)
-* **Language:** Python 3.10
-* **AI:** OpenAI GPT-4o (Structured Outputs & JSON Mode)
-* **Data:** FRED (Federal Reserve Economic Data), Yahoo Finance
-* **Frontend:** HTML5, CSS3, Chart.js (Visualization), AWS S3 Static Hosting
+* **Cloud:** AWS SAM (managing Lambda, S3, SQS, SES, EventBridge, IAM)
+* **Language:** Python 3.12 (Analyst/Chat), Python 3.10 (Mailer/Scraper)
+* **Security:** Cognito (Frontend Auth) + S3 Allowlist (Chat Backend Auth)
+* **AI:** OpenAI GPT-4o (Structured Outputs)
+* **Frontend:** HTML5, CSS3, Chart.js, CloudFront CDN
 
 ## ⚡ Quick Start
-Copy/paste these commands to create a minimal environment (assumes AWS CLI configured):
+### Prerequisites
+* AWS CLI installed and configured
+* AWS SAM CLI installed
+* Docker (optional, for local builds)
 
-1) Create an S3 bucket and enable public/static hosting (or host privately with CloudFront):
-
-```powershell
-aws s3 mb s3://your-bucket-name
-aws s3api put-bucket-versioning --bucket your-bucket-name --versioning-configuration Status=Enabled
-```
-
-2) Upload the frontend and initial config:
+### 1. Deployment
+The entire backend stack is defined in `template.yaml`. Deploy it with a single command:
 
 ```powershell
-aws s3 cp frontend/index.html s3://your-bucket-name/index.html --acl public-read
-aws s3 cp infrastructure/portfolio_config.json s3://your-bucket-name/portfolio_config.json
+.\deploy.ps1
 ```
 
-3) Create an SQS queue and note the URL (used by the mailer):
+This script handles:
+* Clearing build artifacts
+* Building the SAM application (using containers if needed)
+* Deploying the CloudFormation stack (`sam-app`)
 
-```powershell
-aws sqs create-queue --queue-name BondAnalystAlertsQueue
-```
+### 2. Frontend Setup
+1.  Upload the frontend code to your S3 bucket:
+    ```powershell
+    aws s3 cp frontend/index.html s3://your-bucket-name/index.html
+    ```
+2.  Invalidate CloudFront cache (to see changes immediately):
+    ```powershell
+    aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/index.html"
+    ```
 
-4) Deploy Lambdas (example using ZIPs and AWS CLI; adapt to your CI/CD):
-
-```powershell
-aws lambda create-function --function-name bond-scraper --zip-file fileb://functions/scraper/deploy.zip --handler lambda_function.lambda_handler --runtime python3.10 --role <role-arn> --timeout 300 --environment Variables={BUCKET_NAME=your-bucket-name,OPENAI_API_KEY=your-openai-key}
-```
-
-See the Deployment section below for full environment variables per function.
+### 3. Access Control (Chatbot)
+The Chat Analyst is secured to specific subscribers.
+1.  Edit `infrastructure/subscribers.json` to add authorized emails.
+2.  Upload to S3:
+    ```powershell
+    aws s3 cp infrastructure/subscribers.json s3://your-bucket-name/infrastructure/subscribers.json
+    ```
 
 ## 🚀 Key Features
-* **Self-Healing:** If the email service fails, messages persist in SQS for retry.
-* **AI Data Extraction:** Uses LLMs to scrape complex financial metrics (Convexity, OAS) that standard Regex misses.
-* **Cost Efficient:** Runs entirely on AWS Free Tier.
-* **Smart RAG:** Locally manages thousands of articles for AI context with zero vector DB costs.
-* **Automated:** Zero manual intervention required; runs on a daily cron schedule.
-
-## 🔧 Deployment & Configuration
-
-### 1. The Infrastructure
-1.  **S3 Bucket:** Create a bucket (e.g., `bond-analyst-data`) and upload `infrastructure/portfolio_config.json` to the root.
-2.  **SQS Queue:** Create a standard queue named `BondAnalystAlertsQueue`. Copy its URL.
-3.  **SES:** Verify your sender and recipient email addresses in the AWS SES Console.
-
-### 2. The Functions
-Deploy the code from `/functions` to 3 separate AWS Lambdas (Runtime: Python 3.10).
-
-**A. Bond Scraper (`/functions/scraper`)**
-* **Environment Vars:**
-    * `BUCKET_NAME` = your-bucket-name
-    * `OPENAI_API_KEY` = your-openai-key (Used for AI parsing)
-* **Configuration:** Set Timeout to **5 minutes** (AI scraping is intensive).
-* **Trigger:** Go to EventBridge > Scheduler. Create a schedule to run this Lambda every weekday at 12:00 PM (`cron(0 17 ? * MON-FRI *)`).
-
-**B. Bond Analyst (`/functions/analyst`)**
-* **Environment Vars:**
-    * `BUCKET_NAME` = your-bucket-name
-    * `SQS_QUEUE_URL` = your-sqs-queue-url
-    * `FRED_API_KEY` = your-key
-    * `OPENAI_API_KEY` = your-key
-    * `TARGET_EMAIL` = your-email@example.com (Recipient)
-    * `SNS_TOPIC_ARN` = optional SNS topic for alerts (if used)
-    * `SQS_QUEUE_URL` = SQS queue to enqueue notification payloads
-    
-* **Trigger:** Add an **S3 Trigger** to this function.
-    * Event Type: `All object create events`
-    * Prefix: `data/`
-    * Suffix: `upload_complete.json` **(Crucial: Prevents multiple runs)**
-
-    *Note:* The analyst writes reports and dashboard artifacts to the bucket under the following keys:
-    - `reports/ai_analysis_YYYY-MM-DD.json` — structured JSON report produced by the AI chain
-    - `dashboard_data.json` and `dashboard_history.json` — dashboard inputs consumed by the frontend
-
-**C. Email Forwarder (`/functions/mailer`)**
-* **Environment Vars:**
-    * `SENDER_EMAIL` = verified-sender@example.com
-* **Trigger:** Add an **SQS Trigger**. Select `BondAnalystAlertsQueue`.
-
-**D. Frontend Dashboard (`/frontend`)**
-* **Setup:** Upload `index.html` to your S3 bucket.
-* **Permissions:** Go to S3 Permissions > CORS and enable GET requests to allow the browser to fetch the JSON data.
-* **Config:** Update the `BUCKET_DOMAIN` variable in `index.html` to match your bucket URL.
-
-**E. Cognito (Optional, Recommended for Authenticated UI)**
-* If you want user authentication on the dashboard, configure an Amazon Cognito User Pool and App Client.
-* Set `COGNITO_DOMAIN`, `CLIENT_ID`, and `REDIRECT_URI` in `frontend/index.html` (or update via a small config file on S3).
-* Note: the frontend performs a UI-only token decode and attempts to fetch `/oauth2/userInfo` with the `access_token` for a validated profile display — your APIs must validate tokens server-side.
-
-### 3. Permissions (IAM)
-Each function needs specific rights. See `/infrastructure/iam_policies.json` for the exact JSON policies to attach to each Lambda's Execution Role.
-Ensure roles have least-privilege S3 Put/Get access to the specific keys the functions need: `data/*`, `reports/*`, and `dashboard_*.json`.
+* **Infrastructure as Code:** Fully reproducible stack via AWS SAM.
+* **Secure Chat:** Hybrid authentication using Cognito (Frontend) and S3-based Allowlist (Backend).
+* **Self-Healing:** SQS queues ensure email delivery even if SES is temporarily down.
+* **Smart RAG:** Self-feeding knowledge base that learns from its own daily reports.
 
 ## 🛠️ Troubleshooting & Tips
 - If the frontend shows "Report pending for today.", verify the object `reports/ai_analysis_YYYY-MM-DD.json` exists in your bucket and is publicly readable (or accessible via CloudFront).
