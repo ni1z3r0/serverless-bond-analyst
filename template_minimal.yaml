@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Minimal test template
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: "bond-dashboard-rc11292025"
+
+Globals:
+  Function:
+    Timeout: 60
+    Runtime: python3.12
+
+Resources:
+  TestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./functions/analyst
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref BucketName

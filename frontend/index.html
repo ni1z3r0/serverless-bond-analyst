@@ -923,10 +923,25 @@
 
                 const model = document.getElementById('model-selector').value;
 
+                // Get user email from Cognito session for subscriber auth
+                let userEmail = '';
+                const idToken = sessionStorage.getItem('id_token');
+                if (idToken) {
+                    try {
+                        const parts = idToken.split('.');
+                        if (parts.length >= 2) {
+                            const payload = JSON.parse(atob(parts[1]));
+                            userEmail = payload.email || '';
+                        }
+                    } catch (e) {
+                        console.warn('Could not extract email from token');
+                    }
+                }
+
                 const res = await fetch(CHAT_LAMBDA_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: msg, model: model })
+                    body: JSON.stringify({ query: msg, model: model, email: userEmail })
                 });
 
                 console.log("Response status:", res.status);

@@ -1,27 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: >
-  Bond Analyst Serverless Stack
-  Grouping all 4 core functions into a single managed application.
+Description: Step 1 - BondAnalyst only
 
 Parameters:
   BucketName:
     Type: String
     Default: "bond-dashboard-rc11292025"
-    Description: Name of the existing S3 bucket for data/reports.
   OpenAIApiKey:
     Type: String
-    Description: API Key for OpenAI.
     NoEcho: true
-  TargetEmail:
-    Type: String
-    Description: Email address for reports.
-  SenderEmail:
-    Type: String
-    Description: Email address ensuring SES (must be verified).
   SqsQueueUrl:
     Type: String
-    Description: URL of the SQS Queue for notifications.
+  SqsQueueArn:
+    Type: String
+  TargetEmail:
+    Type: String
+  SenderEmail:
+    Type: String
+    Description: Verified SES email for sending notifications.
 
 Globals:
   Function:
@@ -34,9 +30,6 @@ Globals:
         OPENAI_API_KEY: !Ref OpenAIApiKey
 
 Resources:
-  # ---------------------------------------------------
-  # 1. CORE ANALYST (Business Logic)
-  # ---------------------------------------------------
   BondAnalyst:
     Type: AWS::Serverless::Function
     Properties:
@@ -50,18 +43,19 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName
-        - SQSSendMessagePolicy:
-            QueueName: !Select [4, !Split ['/', !Ref SqsQueueUrl]]
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: !Ref SqsQueueArn
 
-  # ---------------------------------------------------
-  # 2. DATA SCRAPER (Market Data Fetcher)
-  # ---------------------------------------------------
   BondDataScraper:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ./functions/scraper
       Handler: lambda_function.lambda_handler
-      Timeout: 300 # 5 minutes for rate-limited scraping
+      Timeout: 300
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName
@@ -69,12 +63,8 @@ Resources:
         DailyScrape:
           Type: Schedule
           Properties:
-            # Run at 6:00 AM UTC (approx 1 AM EST / 12 AM CST)
             Schedule: cron(0 6 * * ? *)
 
-  # ---------------------------------------------------
-  # 3. CHATBOT (RAG Interface)
-  # ---------------------------------------------------
   ChatAnalyst:
     Type: AWS::Serverless::Function
     Properties:
@@ -87,27 +77,14 @@ Resources:
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref BucketName
-      FunctionUrlConfig:
-        AuthType: NONE
-        Cors:
-          AllowOrigins: 
-            - "*"
-          AllowMethods: 
-            - "GET"
-            - "POST"
-            - "OPTIONS"
-          AllowHeaders: 
-            - "*"
 
-  # ---------------------------------------------------
-  # 4. EMAIL FORWARDER (Notifications)
-  # ---------------------------------------------------
   EmailForwarder:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ./functions/mailer
       Handler: lambda_function.lambda_handler
-      Runtime: python3.10 # Matching existing runtime
+      Runtime: python3.10
+      Timeout: 30  # Must be <= SQS queue visibility timeout (30s)
       Environment:
         Variables:
           SENDER_EMAIL: !Ref SenderEmail
@@ -119,10 +96,5 @@ Resources:
         SQSEvent:
           Type: SQS
           Properties:
-            Queue: !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${!Select [4, !Split ['/', !Ref SqsQueueUrl]]}"
+            Queue: !Ref SqsQueueArn
             BatchSize: 10
-
-Outputs:
-  ChatApiUrl:
-    Description: "API URL for the Chatbot"
-    Value: !GetAtt ChatAnalystUrl.FunctionUrl

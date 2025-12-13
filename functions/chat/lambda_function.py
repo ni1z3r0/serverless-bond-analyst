@@ -24,6 +24,29 @@ def get_cors_headers():
         'Access-Control-Allow-Methods': 'OPTIONS,POST,GET'
     }
 
+# --- SUBSCRIBER ACCESS CONTROL (MVP) ---
+def get_subscribers():
+    """Load authorized subscriber emails from S3."""
+    try:
+        obj = s3.get_object(Bucket=BUCKET_NAME, Key="infrastructure/subscribers.json")
+        data = json.loads(obj['Body'].read())
+        return [email.lower().strip() for email in data.get('emails', [])]
+    except Exception as e:
+        logger.warning("Could not load subscribers list: %s", e)
+        return []
+
+def is_authorized(email):
+    """Check if email is in the subscribers list."""
+    if not email:
+        return False
+    subscribers = get_subscribers()
+    # Empty list = allow all (for testing), otherwise check
+    if not subscribers:
+        logger.info("No subscribers list found - allowing all access (dev mode)")
+        return True
+    return email.lower().strip() in subscribers
+
+
 import math
 
 def generate_embedding(text):
@@ -173,11 +196,20 @@ def lambda_handler(event, context):
     try:
         body = json.loads(event.get('body', '{}'))
         query = body.get('query')
+        email = body.get('email')  # MVP: Frontend must send user email
         
         if not query:
             return {
                 'statusCode': 400,
                 'body': json.dumps({'error': 'Missing query'})
+            }
+        
+        # --- MVP ACCESS CONTROL ---
+        if not is_authorized(email):
+            logger.warning("Access denied for email: %s", email)
+            return {
+                'statusCode': 403,
+                'body': json.dumps({'error': 'Access denied. Please subscribe to use the analyst.'})
             }
             
         model = body.get('model', GPT_MODEL)

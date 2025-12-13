@@ -14,6 +14,7 @@ Thumbs.db
 
 # --- AWS SAM/Serverless temp files (if you use them later) ---
 .aws-sam/
+samconfig.toml
 
 
 # Ignore generated data files
