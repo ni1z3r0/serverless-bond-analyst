@@ -23,3 +23,9 @@ CEMB_2025-11-29.json
 data/*.json
 reports/*.txt
 node_modules
+
+# Security: Debug & Config Files
+*_config.json
+funcs.json
+response_*.json
+role_arn.txt

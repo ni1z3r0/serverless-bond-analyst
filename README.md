@@ -130,15 +130,15 @@ Ensure roles have least-privilege S3 Put/Get access to the specific keys the fun
 graph LR
     subgraph "Ingestion Layer"
         direction TB
-        Scheduler[⏰ EventBridge Schedule] -->|Trigger| Scraper(λ Bond Scraper)
+        Scheduler["⏰ EventBridge Schedule"] -->|Trigger| Scraper("λ Bond Scraper")
         Scraper -->|Write Raw Data| S3[(S3 Data Lake)]
     end
 
     subgraph "Processing Layer"
         direction TB
-        Analyst(λ Bond Analyst) -->|Fetch Macros| API[FRED & Yahoo APIs]
-        Analyst -->|Generate Report| GPT[🧠 GPT-4o]
-        Analyst -->|Publish Payload| SQS{AWS SQS Queue}
+        Analyst(λ Bond Analyst) -->|Fetch Macros| API["FRED & Yahoo APIs"]
+        Analyst -->|Generate Report| GPT["🧠 GPT-4o"]
+        Analyst -->|Publish Payload| SQS{"AWS SQS Queue"}
         
         %% The Critical Link: Analyst updates S3 with processed data
         Analyst -.->|Save Dashboard JSON| S3
@@ -147,20 +147,19 @@ graph LR
 
     subgraph "Context Layer (Local)"
         direction TB
-        CLI[💻 manage_context.py] -->|Scrape & Embed| Context[index.faiss + metadata.json]
+        CLI["💻 manage_context.py"] -->|Scrape & Embed| Context["index.faiss + metadata.json"]
         CLI -->|Upload| S3
-    end
     end
 
     subgraph "Delivery Layer"
         direction TB
-        Mailer(λ Email Forwarder) -->|Send| SES[AWS SES]
-        SES -->|Deliver| Inbox[📧 User Inbox]
+        Mailer("λ Email Forwarder") -->|Send| SES[AWS SES]
+        SES -->|Deliver| Inbox["📧 User Inbox"]
     end
 
     subgraph "Visualization Layer"
         direction TB
-        Dashboard[📊 Web Dashboard] -->|Render| Browser[🖥️ User Browser]
+        Dashboard["📊 Web Dashboard"] -->|Render| Browser["🖥️ User Browser"]
     end
 
     %% Critical Workflow Connections

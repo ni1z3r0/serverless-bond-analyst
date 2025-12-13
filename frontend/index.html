@@ -216,6 +216,111 @@
         .status-badge:hover {
             opacity: 1;
         }
+
+        /* --- Chat Widget --- */
+        .chat-widget-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--blue);
+            color: white;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            transition: transform 0.2s;
+        }
+
+        .chat-widget-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .chat-window {
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            width: 350px;
+            height: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            display: none;
+            /* Hidden by default */
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: var(--blue);
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: var(--blue);
+            color: white;
+        }
+
+        .message.bot {
+            align-self: flex-start;
+            background: #e9ecef;
+            color: #333;
+        }
+
+        .chat-input-area {
+            padding: 15px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+            background: white;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            outline: none;
+        }
+
+        .chat-input-area button {
+            background: var(--blue);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+        }
     </style>
 </head>
 
@@ -282,6 +387,33 @@
             </a>
         </div>
     </footer>
+
+    <!-- Chat Widget -->
+    <div id="chat-btn" class="chat-widget-btn" onclick="toggleChat()">💬</div>
+
+    <div id="chat-window" class="chat-window">
+        <div class="chat-header">
+            <div style="display:flex; flex-direction:column;">
+                <span>🤖 YieldCurve AI</span>
+                <select id="model-selector"
+                    style="font-size:0.75rem; border:none; background:rgba(255,255,255,0.2); color:white; margin-top:4px; cursor:pointer; border-radius:4px;">
+                    <option value="gpt-4o" style="color:black;">GPT-4o (Smartest)</option>
+                    <option value="gpt-4-turbo" style="color:black;">GPT-4 Turbo</option>
+                    <option value="gpt-3.5-turbo" style="color:black;">GPT-3.5 (Fast)</option>
+                    <option value="gpt-5.1" style="color:black;">GPT-5.1 (Preview)</option>
+                </select>
+            </div>
+            <span style="cursor:pointer" onclick="toggleChat()">✕</span>
+        </div>
+        <div id="chat-messages" class="chat-messages">
+            <div class="message bot">Hello! I'm your subscriber-exclusive analyst. Ask me anything about the bond market
+                or sector trends.</div>
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Ask a question..." onkeypress="handleEnter(event)">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
     <script>
         // ========================================
         // COGNITO CONFIGURATION
@@ -742,6 +874,90 @@
 
         // Start authentication flow on page load
         handleAuth();
+
+        // ========================================
+        // SUBSCRIBER CHAT LOGIC
+        // ========================================
+        const IS_SUBSCRIBER = true; // TOGGLE THIS FOR VISIBILITY
+        const CHAT_LAMBDA_URL = "https://l54azjvt5l2cerlwp2ubqaclnm0ulxbb.lambda-url.us-east-1.on.aws/";
+
+        if (!IS_SUBSCRIBER) {
+            document.getElementById('chat-btn').style.display = 'none';
+        }
+
+        function toggleChat() {
+            const win = document.getElementById('chat-window');
+            if (win.style.display === 'flex') {
+                win.style.display = 'none';
+            } else {
+                win.style.display = 'flex';
+                // Focus input
+                setTimeout(() => document.getElementById('chat-input').focus(), 100);
+            }
+        }
+
+        function handleEnter(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            addMessage(msg, 'user');
+            input.value = '';
+
+            const loadingId = addMessage('Thinking...', 'bot');
+
+            try {
+                console.log("Attempting to fetch:", CHAT_LAMBDA_URL);
+                // If user hasn't set the URL yet, mock a response
+                if (CHAT_LAMBDA_URL.includes("YOUR_")) {
+                    setTimeout(() => {
+                        document.getElementById(loadingId).remove();
+                        addMessage("⚠️ Feature Preview: Please configure CHAT_LAMBDA_URL in index.html to connect to the backend.", 'bot');
+                    }, 1000);
+                    return;
+                }
+
+                const model = document.getElementById('model-selector').value;
+
+                const res = await fetch(CHAT_LAMBDA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: msg, model: model })
+                });
+
+                console.log("Response status:", res.status);
+                const data = await res.json();
+                console.log("Response data:", data);
+
+                document.getElementById(loadingId).remove();
+
+                if (data.error) {
+                    addMessage("Error: " + data.error, 'bot');
+                } else {
+                    addMessage(data.response, 'bot');
+                }
+            } catch (e) {
+                document.getElementById(loadingId).remove();
+                addMessage("Connection failed. Check Lambda URL.", 'bot');
+                console.error("Chat Fetch Error:", e);
+            }
+        }
+
+        function addMessage(text, sender) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}`;
+            // Use innerHTML safely for simple formatting if needed, or textContent
+            div.textContent = text;
+            div.id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+            const container = document.getElementById('chat-messages');
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+            return div.id;
+        }
     </script>
 
 

@@ -7,6 +7,7 @@ import datetime
 import re
 import gzip
 import logging
+import uuid
 
 # Logger
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,8 @@ TARGET_EMAIL = os.environ.get('TARGET_EMAIL')
 sns = boto3.client('sns')
 sqs_client = boto3.client('sqs') 
 s3 = boto3.client('s3')
+
+from botocore.exceptions import ClientError
 
 # 1. LOAD CONFIGURATION (Dynamic Ticker List)
 def get_config():
@@ -118,7 +121,12 @@ def get_todays_data():
                 if today in obj['Key']:
                     file_content = s3.get_object(Bucket=BUCKET_NAME, Key=obj['Key'])
                     data = json.loads(file_content['Body'].read())
-                    data_list.append(data)
+                    
+                    if isinstance(data, list):
+                        data_list.extend(data)
+                    else:
+                        data_list.append(data)
+        
         return data_list
     except Exception as e:
         logger.exception("Failed to list or read S3 data for %s", today)
@@ -237,6 +245,143 @@ def get_article_context(market_keywords_text):
         
     return ""
 
+# 5c. SELF-FEEDING KNOWLEDGE BASE
+def extract_keywords(text):
+    """Simple frequency-based keyword extractor to avoid heavy NLTK dependencies on Lambda side."""
+    # Stopwords (Basic list)
+    stopwords = set(['the', 'and', 'to', 'of', 'a', 'in', 'is', 'that', 'for', 'it', 'on', 'with', 'as', 'was', 'at', 'by', 'an', 'be', 'this', 'which', 'or', 'from', 'but', 'not'])
+    
+    words = text.lower().replace('.', '').replace(',', '').split()
+    # Filter and count
+    counts = {}
+    for w in words:
+        if w not in stopwords and len(w) > 3:
+            counts[w] = counts.get(w, 0) + 1
+            
+    # Return top 20 words
+    return sorted(counts, key=counts.get, reverse=True)[:20]
+
+def generate_embedding(text):
+    print("🧠 Generating Embedding...")
+    url = "https://api.openai.com/v1/embeddings"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
+    payload = {
+        "model": "text-embedding-3-small",
+        "input": text[:8000] # Safe limit
+    }
+    
+    try:
+        req = urllib.request.Request(url, json.dumps(payload).encode('utf-8'), headers)
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read())['data'][0]['embedding']
+    except Exception as e:
+        logger.exception("Embedding generation failed: %s", e)
+        return []
+
+def generate_ai_title(report_content):
+    print("🧠 Generating Smart Title...")
+    prompt = f"""
+    Create a short, punchy, 5-8 word headline for this market report.
+    Style: Financial News (Bloomberg/WSJ).
+    Focus on the "Contrarian" take or main signal.
+    Do not use quotes.
+    
+    REPORT:
+    {report_content[:1500]}
+    """
+    
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {OPENAI_API_KEY}"}
+    payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "system", "content": "You are a financial editor. Return only the title text."}, 
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7
+    }
+    
+    try:
+        req = urllib.request.Request(url, json.dumps(payload).encode('utf-8'), headers)
+        with urllib.request.urlopen(req) as response:
+            title = json.loads(response.read())['choices'][0]['message']['content']
+            return title.replace('"', '').strip()
+    except Exception as e:
+        logger.exception("Title generation failed: %s", e)
+        return f"Market Report {datetime.date.today()}"
+
+def update_knowledge_base(report_json_str):
+    print("🧠 Self-Feeding: Updating Knowledge Base with today's report...")
+    try:
+        report = json.loads(report_json_str)
+        content = f"# MARKET MEMO\n{report.get('market_memo', '')}\n\n# SECTOR ANALYSIS\n{report.get('sector_analysis', '')}"
+        
+        # 0. Generate Smart Title
+        smart_title = generate_ai_title(content)
+        
+        # 1. Download Current State
+        # 1. Download Current State
+        # A. Metadata & Keywords
+        try:
+            s3.download_file(BUCKET_NAME, "context/metadata.json", "/tmp/metadata.json")
+            s3.download_file(BUCKET_NAME, "context/keywords.json", "/tmp/keywords.json")
+            
+            with open('/tmp/metadata.json', 'r') as f: metadata = json.load(f)
+            with open('/tmp/keywords.json', 'r') as f: keywords = json.load(f)
+        except Exception:
+            print("⚠️ Metadata/Keywords not found or error. Initializing empty.")
+            metadata = []
+            keywords = {}
+
+        # B. Embeddings (Separate check to avoid resetting Metadata if this is the only missing file)
+        try:
+            s3.download_file(BUCKET_NAME, "context/embeddings.json", "/tmp/embeddings.json")
+            with open('/tmp/embeddings.json', 'r') as f: embeddings = json.load(f)
+        except Exception:
+            print("⚠️ Embeddings not found. Initializing empty.")
+            embeddings = {}
+        
+        # 2. Create New Entry
+        date_str = str(datetime.date.today())
+        new_entry = {
+            "id": str(uuid.uuid4())[:8],
+            "system_date_added": date_str,
+            "article_date": date_str,
+            "source": "YieldCurve App (Contrarian Analyst)",
+            "author": "Bond Analyst AI",
+            "title": smart_title,
+            "url": f"s3://{BUCKET_NAME}/reports/ai_analysis_{date_str}.json",
+            "content_preview": content[:200] + "...",
+            "content": content
+        }
+        
+        # 3. Append & Deduplicate (Remove if same date exists)
+        metadata = [m for m in metadata if m.get('article_date') != date_str] # Remove any existing report for today
+        metadata.append(new_entry)
+        
+        # 4. Update Keywords & Vectors
+        new_keywords = extract_keywords(content)
+        for k in new_keywords:
+            if k not in keywords: keywords[k] = []
+            keywords[k].append(new_entry['id'])
+            
+        vector = generate_embedding(content)
+        if vector:
+            embeddings[new_entry['id']] = vector
+            
+        # 5. Upload Back to S3
+        with open('/tmp/metadata.json', 'w') as f: json.dump(metadata, f)
+        with open('/tmp/keywords.json', 'w') as f: json.dump(keywords, f)
+        with open('/tmp/embeddings.json', 'w') as f: json.dump(embeddings, f)
+        
+        s3.upload_file('/tmp/metadata.json', BUCKET_NAME, "context/metadata.json")
+        s3.upload_file('/tmp/keywords.json', BUCKET_NAME, "context/keywords.json")
+        s3.upload_file('/tmp/embeddings.json', BUCKET_NAME, "context/embeddings.json")
+        print(f"✅ Knowledge Base Updated: {smart_title}")
+        
+    except Exception as e:
+        logger.exception("Failed to self-feed knowledge base: %s", e)
+
 # 6. AI CHAIN (JSON Output Version)
 def run_chain(macros, data_list):
     print("⛓️ Running AI Chain...")
@@ -341,6 +486,9 @@ def lambda_handler(event, context):
             Body=report_json_str, 
             ContentType='application/json'
         )
+
+        # 4. Self-Feed Knowledge Base
+        update_knowledge_base(report_json_str)
         
         # --- SQS PAYLOAD GENERATION ---
         try:

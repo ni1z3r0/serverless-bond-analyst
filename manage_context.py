@@ -27,65 +27,49 @@ if not os.path.exists(LOCAL_CACHE_DIR):
 # S3 Client
 s3 = boto3.client('s3')
 
-# --- LAZY IMPORTS ---
-def get_model():
-    print("⏳ Loading local Embedding Model (this may take a moment)...")
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer('all-MiniLM-L6-v2') 
-
-# --- S3 SYNC FUNCTIONS ---
-def download_state():
-    print("🔄 Syncing from S3...")
-    for f_name in [METADATA_FILE, INDEX_FILE, KEYWORDS_FILE]:
-        try:
-            s3.download_file(BUCKET_NAME, f"context/{f_name}", os.path.join(LOCAL_CACHE_DIR, f_name))
-        except:
-            pass # File might not exist yet
-    print("✅ Sync complete.")
-
-def upload_state():
-    print("☁️ Uploading to S3...")
-    for f_name in [METADATA_FILE, INDEX_FILE, KEYWORDS_FILE]:
-        path = os.path.join(LOCAL_CACHE_DIR, f_name)
-        if os.path.exists(path):
-            s3.upload_file(path, BUCKET_NAME, f"context/{f_name}")
-    print("✅ Upload complete.")
-
-# --- CORE LOGIC ---
-def load_metadata():
-    path = os.path.join(LOCAL_CACHE_DIR, METADATA_FILE)
-    if os.path.exists(path):
-        with open(path, 'r') as f:
-            return json.load(f)
-    return []
-
-def save_metadata(data):
-    path = os.path.join(LOCAL_CACHE_DIR, METADATA_FILE)
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2)
-
-def extract_keywords(text):
-    """Simple frequency-based keyword extractor to avoid heavy NLTK dependencies on Lambda side."""
-    # Stopwords (Basic list)
-    stopwords = set(['the', 'and', 'to', 'of', 'a', 'in', 'is', 'that', 'for', 'it', 'on', 'with', 'as', 'was', 'at', 'by', 'an', 'be', 'this', 'which', 'or', 'from', 'but', 'not'])
+# --- EMBEDDING LOGIC ---
+def generate_openai_embeddings(texts):
+    print(f"🧠 Generating embeddings for {len(texts)} articles via OpenAI...")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        print("❌ OPENAI_API_KEY not found. Skipping embeddings.")
+        return []
+        
+    url = "https://api.openai.com/v1/embeddings"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
     
-    words = text.lower().replace('.', '').replace(',', '').split()
-    # Filter and count
-    counts = {}
-    for w in words:
-        if w not in stopwords and len(w) > 3:
-            counts[w] = counts.get(w, 0) + 1
+    # OpenAI Batch Limit is usually high, but let's do simple loop for safety or small batches if needed.
+    # For now, simplistic implementation:
+    vectors = []
+    
+    for text in texts:
+        # Truncate to avoid token limits (approx 8k tokens)
+        payload = {
+            "input": text[:8000], 
+            "model": "text-embedding-3-small"
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                vec = resp.json()['data'][0]['embedding']
+                vectors.append(vec)
+            else:
+                print(f"⚠️ Embedding failed: {resp.text}")
+                vectors.append([]) # Empty vector placeholder
+        except Exception as e:
+            print(f"⚠️ Embedding error: {e}")
+            vectors.append([])
             
-    # Return top 20 words
-    return sorted(counts, key=counts.get, reverse=True)[:20]
+    return vectors
 
 def rebuild_index(metadata):
-    import faiss
-    
     if not metadata:
         return
 
-    # 1. Update Keyword Index (Lightweight for Lambda)
+    # 1. Update Keyword Index
     print("🔑 Building Keyword Index...")
     keyword_map = {}
     for item in metadata:
@@ -97,18 +81,24 @@ def rebuild_index(metadata):
     with open(os.path.join(LOCAL_CACHE_DIR, KEYWORDS_FILE), 'w') as f:
         json.dump(keyword_map, f)
 
-    # 2. Update Vector Index (For future advanced use)
-    model = get_model()
-    texts = [m['content'] for m in metadata]
-    print(f"🧠 Generating embeddings for {len(texts)} articles...")
-    embeddings = model.encode(texts)
+    # 2. Update Vector Index (JSON format for Lambda)
+    doc_texts = [m['content'] for m in metadata]
+    doc_ids = [m['id'] for m in metadata]
     
-    dimension = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dimension)
-    index.add(np.array(embeddings).astype('float32'))
-    faiss.write_index(index, os.path.join(LOCAL_CACHE_DIR, INDEX_FILE))
+    vectors = generate_openai_embeddings(doc_texts)
     
-    print(f"✅ Indexes built (Keywords + Vectors).")
+    # Map ID -> Vector
+    embedding_map = {}
+    for doc_id, vec in zip(doc_ids, vectors):
+        if vec:
+            embedding_map[doc_id] = vec
+            
+    # Save as embeddings.json (Not FAISS)
+    EMBEDDINGS_FILE = "embeddings.json"
+    with open(os.path.join(LOCAL_CACHE_DIR, EMBEDDINGS_FILE), 'w') as f:
+        json.dump(embedding_map, f)
+    
+    print(f"✅ Indexes built: Keywords + {len(embedding_map)} Vectors.")
 
 # --- INPUT HANDLERS ---
 
@@ -116,7 +106,19 @@ def rebuild_index(metadata):
 
 def extract_url_metadata(url):
     print(f"🌐 Fetching {url}...")
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.google.com/',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0'
+    }
     try:
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
@@ -319,20 +321,53 @@ def scrape_metadata_with_ai(text_chunk, api_key):
         print(f"⚠️ OpenAI Scrape failed: {e}")
     return None
         
+# --- S3 SYNC FUNCTIONS ---
+EMBEDDINGS_FILE = "embeddings.json"
 
+def download_state():
+    print("🔄 Syncing from S3...")
+    for f_name in [METADATA_FILE, EMBEDDINGS_FILE, KEYWORDS_FILE]:
+        try:
+            s3.download_file(BUCKET_NAME, f"context/{f_name}", os.path.join(LOCAL_CACHE_DIR, f_name))
+        except:
+            pass # File might not exist yet
+    print("✅ Sync complete.")
 
 def upload_state():
     print("☁️ Uploading to S3...")
-    try:
-        for f_name in [METADATA_FILE, INDEX_FILE, KEYWORDS_FILE]:
-            path = os.path.join(LOCAL_CACHE_DIR, f_name)
-            if os.path.exists(path):
-                s3.upload_file(path, BUCKET_NAME, f"context/{f_name}")
-        print("✅ Upload complete.")
-    except Exception as e:
-        print(f"\n❌ S3 UPLOAD FAILED: {e}")
-        print("💡 TIP: Your IAM user might need 's3:PutObject' permission for this bucket.")
-        print(f"   Resource: arn:aws:s3:::{BUCKET_NAME}/context/*")
+    for f_name in [METADATA_FILE, EMBEDDINGS_FILE, KEYWORDS_FILE]:
+        path = os.path.join(LOCAL_CACHE_DIR, f_name)
+        if os.path.exists(path):
+            s3.upload_file(path, BUCKET_NAME, f"context/{f_name}")
+    print("✅ Upload complete.")
+
+# --- CORE LOGIC ---
+def load_metadata():
+    path = os.path.join(LOCAL_CACHE_DIR, METADATA_FILE)
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_metadata(data):
+    path = os.path.join(LOCAL_CACHE_DIR, METADATA_FILE)
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=2)
+
+def extract_keywords(text):
+    """Simple frequency-based keyword extractor to avoid heavy NLTK dependencies on Lambda side."""
+    # Stopwords (Basic list)
+    stopwords = set(['the', 'and', 'to', 'of', 'a', 'in', 'is', 'that', 'for', 'it', 'on', 'with', 'as', 'was', 'at', 'by', 'an', 'be', 'this', 'which', 'or', 'from', 'but', 'not'])
+    
+    words = text.lower().replace('.', '').replace(',', '').split()
+    # Filter and count
+    counts = {}
+    for w in words:
+        if w not in stopwords and len(w) > 3:
+            counts[w] = counts.get(w, 0) + 1
+            
+    # Return top 20 words
+    return sorted(counts, key=counts.get, reverse=True)[:20]
 
 def get_manual_input():
     print("📝 Paste article text (Ctrl+Z/D on new line to finish):")

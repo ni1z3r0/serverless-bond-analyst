@@ -1,0 +1,19 @@
+[
+    {
+        "Ticker": "US10Y",
+        "Type": "bond",
+        "Yield": 4.5,
+        "Duration": 10
+    },
+    {
+        "Ticker": "SPY",
+        "Type": "equity",
+        "Price": 450.00
+    },
+    {
+        "Ticker": "IYF",
+        "Type": "sector",
+        "PE_Ratio": 15.5,
+        "Momentum": "High"
+    }
+]
