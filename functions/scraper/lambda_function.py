@@ -90,7 +90,7 @@ def extract_with_ai(ticker, text, fund_type):
             return json.loads(res_body['choices'][0]['message']['content'])
             
     except Exception as e:
-        print(f"AI Extraction Failed for {ticker}: {e}")
+        print(f"[ALERT:OpenAI] AI Extraction Failed for {ticker}: {e}")
         return None
     
 def scrape_ishares_page(fund):
@@ -134,12 +134,14 @@ def scrape_ishares_page(fund):
         return None
 
     except Exception as e:
-        print(f"❌ Error scraping {ticker}: {str(e)}")
+        print(f"[ALERT:DataFetch] ❌ Error scraping {ticker}: {str(e)}")
         return None
     
 def lambda_handler(event, context):
     config = get_config()
-    if not config: return {'statusCode': 500, 'body': "Config Missing"}
+    if not config: 
+        print("[ALERT:Critical] Configuration Missing")
+        return {'statusCode': 500, 'body': "Config Missing"}
     
     summary = ""
     # 1. Scrape all funds (This creates 14 files)

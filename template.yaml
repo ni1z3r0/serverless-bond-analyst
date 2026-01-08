@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: Step 1 - BondAnalyst only
 
@@ -43,7 +43,7 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName
-        - Version: '2012-10-17'
+        - Version: "2012-10-17"
           Statement:
             - Effect: Allow
               Action:
@@ -84,7 +84,7 @@ Resources:
       CodeUri: ./functions/mailer
       Handler: lambda_function.lambda_handler
       Runtime: python3.10
-      Timeout: 30  # Must be <= SQS queue visibility timeout (30s)
+      Timeout: 30 # Must be <= SQS queue visibility timeout (30s)
       Environment:
         Variables:
           SENDER_EMAIL: !Ref SenderEmail
@@ -98,3 +98,107 @@ Resources:
           Properties:
             Queue: !Ref SqsQueueArn
             BatchSize: 10
+
+  # --- MONITORING & ALERTS ---
+  SystemAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${AWS::StackName}-SystemAlerts"
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !Ref TargetEmail
+      Protocol: email
+      TopicArn: !Ref SystemAlertsTopic
+
+  # 1. OpenAI Alerts
+  BondAnalystLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BondAnalyst}"
+      RetentionInDays: 7
+
+  OpenAIMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    DependsOn: BondAnalystLogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BondAnalyst}"
+      FilterPattern: '"[ALERT:OpenAI]"'
+      MetricTransformations:
+        - MetricValue: "1"
+          MetricNamespace: "BondAnalyst/Errors"
+          MetricName: "OpenAIFailures"
+
+  OpenAIAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Triggered if OpenAI fails (Key/Quota/Rate)"
+      MetricName: "OpenAIFailures"
+      Namespace: "BondAnalyst/Errors"
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SystemAlertsTopic
+
+  # 2. Data Fetch Alerts
+  DataFetchMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    DependsOn: BondAnalystLogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BondAnalyst}" # Analyst fetches FRED/Yahoo
+      FilterPattern: '"[ALERT:DataFetch]"'
+      MetricTransformations:
+        - MetricValue: "1"
+          MetricNamespace: "BondAnalyst/Errors"
+          MetricName: "DataFetchFailures"
+
+  DataFetchAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Triggered if yfinance or FRED fails"
+      MetricName: "DataFetchFailures"
+      Namespace: "BondAnalyst/Errors"
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SystemAlertsTopic
+
+  # 3. Critical Errors (Scraper)
+  # Scraper runs separately, so we check its logs too
+  BondDataScraperLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BondDataScraper}"
+      RetentionInDays: 7
+
+  ScraperCriticalFilter:
+    Type: AWS::Logs::MetricFilter
+    DependsOn: BondDataScraperLogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${BondDataScraper}"
+      FilterPattern: '"[ALERT:Critical]"'
+      MetricTransformations:
+        - MetricValue: "1"
+          MetricNamespace: "BondAnalyst/Errors"
+          MetricName: "ScraperCriticalErrors"
+
+  ScraperCriticalAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Triggered if Scraper crashes or fails critically"
+      MetricName: "ScraperCriticalErrors"
+      Namespace: "BondAnalyst/Errors"
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SystemAlertsTopic

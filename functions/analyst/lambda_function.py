@@ -54,7 +54,7 @@ def get_macro_data():
                 return float(data['chart']['result'][0]['meta']['regularMarketPrice'])
         except Exception as e:
             # Assumes you have 'logger' defined globally or imported, otherwise use print
-            print(f"Failed to fetch DXY from Yahoo: {e}")
+            print(f"[ALERT:DataFetch] Failed to fetch DXY from Yahoo: {e}")
             return None
 
     # Modified to accept a limit for history fetching
@@ -75,7 +75,7 @@ def get_macro_data():
                 # Otherwise return the full list
                 return observations
         except Exception as e:
-            print(f"Failed to fetch FRED series {id}: {e}")
+            print(f"[ALERT:DataFetch] Failed to fetch FRED series {id}: {e}")
             return None if limit == 1 else []    # 1. Standard Macros (Latest)
     us10y = get_fred_series('DGS10')
     us02y = get_fred_series('DGS2')
@@ -442,7 +442,9 @@ def run_chain(macros, data_list):
         req = urllib.request.Request(url, json.dumps(payload).encode('utf-8'), headers)
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read())['choices'][0]['message']['content']
-    except Exception as e: return json.dumps({"market_memo": f"Error: {e}", "sector_analysis": "Unavailable"})
+    except Exception as e: 
+        print(f"[ALERT:OpenAI] AI Chain Failed: {e}")
+        return json.dumps({"market_memo": f"Error: {e}", "sector_analysis": "Unavailable"})
 
 # --- SMS / EMAIL NOTIFIER ---
 def send_text_alert(report_content):
@@ -504,7 +506,7 @@ def lambda_handler(event, context):
 
         # FIX: Use the existing global TARGET_EMAIL variable
         if not TARGET_EMAIL:
-            print("⚠️ Error: TARGET_EMAIL environment variable is missing.")
+            print("[ALERT:Critical] Error: TARGET_EMAIL environment variable is missing.")
             return {'statusCode': 500, 'body': "Configuration Error: Missing Target Email"}
 
         message_body = {
