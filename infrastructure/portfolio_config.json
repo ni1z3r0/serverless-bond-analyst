@@ -43,5 +43,65 @@
     "ticker": "IVV",
     "type": "equity",
     "url": "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf"
+  },
+
+  {    "ticker": "IYW",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239522/ishares-us-technology-etf"
+  },
+  {
+    "ticker": "IYF",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239517/ishares-us-financials-etf"
+  },
+  {
+    "ticker": "IYE",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239513/ishares-us-energy-etf"
+  },
+  {
+    "ticker": "IYH",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239519/ishares-us-healthcare-etf"
+  },
+  {
+    "ticker": "IYC",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239506/ishares-us-consumer-discretionary-etf"
+  },
+  {
+    "ticker": "IYK",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239505/ishares-us-consumer-staples-etf"
+  },
+  {
+    "ticker": "IYM",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239503/ishares-us-basic-materials-etf"
+  },
+  {
+    "ticker": "IYR",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239520/ishares-us-real-estate-etf"
+  },
+  {
+    "ticker": "IYJ",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239514/ishares-us-industrials-etf"
+  },
+  {
+    "ticker": "IYZ",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239523/ishares-us-telecommunications-etf"
+  },
+  {
+    "ticker": "IDU",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239524/ishares-us-utilities-etf"
+  },
+  {
+    "ticker": "IYT",
+    "type": "equity",
+    "url": "https://www.ishares.com/us/products/239501/ishares-transportation-average-etf"
   }
 ]
