@@ -30,3 +30,7 @@ node_modules
 funcs.json
 response_*.json
 role_arn.txt
+.claude/settings.local.json
+chat_lambda.zip
+
+README_PRIVATE.md

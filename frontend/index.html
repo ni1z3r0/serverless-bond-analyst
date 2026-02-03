@@ -78,6 +78,79 @@
             animation: fadeIn 0.3s;
         }
 
+        .analysis-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto;
+        }
+
+        .analysis-controls select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            background: white;
+            cursor: pointer;
+        }
+
+        .analysis-controls button {
+            padding: 6px 12px;
+            background: var(--blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background 0.2s;
+        }
+
+        .analysis-controls button:hover {
+            background: #1a5276;
+        }
+
+        .analysis-controls button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .analysis-controls button .spinner {
+            display: none;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .analysis-controls button.loading .spinner {
+            display: inline-block;
+        }
+
+        .analysis-controls button.loading .btn-text {
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .tab-header {
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 15px;
+        }
+
+        .tab-header .tab-container {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
         @keyframes fadeIn {
             from {
                 opacity: 0;
@@ -336,13 +409,31 @@
 
     <div class="dashboard-grid">
         <div class="card">
-            <div class="tab-container">
-                <div class="tab active" onclick="switchTab('memo')">🧠 Market Memo</div>
-                <div class="tab" onclick="switchTab('sector')">🏗️ Sector Deep Dive</div>
+            <div class="tab-header">
+                <div class="tab-container">
+                    <div class="tab active" onclick="switchTab('memo')">🧠 Market Memo</div>
+                    <div class="tab" onclick="switchTab('sector')">🏗️ Sector Deep Dive</div>
+                    <div class="tab" onclick="switchTab('debug')">🔧 AI Input</div>
+                </div>
+                <div class="analysis-controls">
+                    <select id="analysis-model-selector">
+                        <option value="gpt-4.1">GPT-4.1</option>
+                        <option value="gpt-5-nano">GPT-5 Nano (Fast)</option>
+                        <option value="gpt-5-mini">GPT-5 Mini</option>
+                        <option value="gpt-5">GPT-5 (Reasoning)</option>
+                        <option value="gpt-5.2">GPT-5.2 (Coding)</option>
+                        <option value="gpt-5.2-pro" selected>GPT-5.2 Pro (Smartest)</option>
+                    </select>
+                    <button id="refresh-analysis-btn" onclick="refreshAnalysis()">
+                        <span class="spinner"></span>
+                        <span class="btn-text">🔄 Refresh Analysis</span>
+                    </button>
+                </div>
             </div>
 
             <div id="memo-content" class="tab-content active report-content">Loading Macro Intelligence...</div>
             <div id="sector-content" class="tab-content report-content">Loading Sector Analysis...</div>
+            <div id="debug-content" class="tab-content report-content" style="font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 8px;">Click "Refresh Analysis" to see the AI input data...</div>
         </div>
 
         <div class="card">
@@ -397,10 +488,12 @@
                 <span>🤖 YieldCurve AI</span>
                 <select id="model-selector"
                     style="font-size:0.75rem; border:none; background:rgba(255,255,255,0.2); color:white; margin-top:4px; cursor:pointer; border-radius:4px;">
-                    <option value="gpt-4o" style="color:black;">GPT-4o (Smartest)</option>
-                    <option value="gpt-4-turbo" style="color:black;">GPT-4 Turbo</option>
-                    <option value="gpt-3.5-turbo" style="color:black;">GPT-3.5 (Fast)</option>
-                    <option value="gpt-5.1" style="color:black;">GPT-5.1 (Preview)</option>
+                    <option value="gpt-5.2-pro" style="color:black;">GPT-5.2 Pro (Smartest)</option>
+                    <option value="gpt-5.2" style="color:black;">GPT-5.2 (Best for Coding)</option>
+                    <option value="gpt-5" style="color:black;">GPT-5 (Reasoning)</option>
+                    <option value="gpt-5-mini" style="color:black;">GPT-5 Mini (Fast)</option>
+                    <option value="gpt-5-nano" style="color:black;">GPT-5 Nano (Fastest)</option>
+                    <option value="gpt-4.1" style="color:black;">GPT-4.1 (Non-reasoning)</option>
                 </select>
             </div>
             <span style="cursor:pointer" onclick="toggleChat()">✕</span>
@@ -421,6 +514,7 @@
         const COGNITO_DOMAIN = "https://us-east-1q0khauohd.auth.us-east-1.amazoncognito.com";
         const CLIENT_ID = "2ac2njr7ljt4sjcleh9fvl1krf";
         const REDIRECT_URI = window.location.origin + window.location.pathname;
+        // const REDIRECT_URI = "https://bond-dashboard-rc11292025.s3.amazonaws.com/index.html"; // Removed hardcode
 
         // ========================================
         // AUTHENTICATION HANDLER (Authorization Code Flow)
@@ -880,6 +974,110 @@
         // ========================================
         const IS_SUBSCRIBER = true; // TOGGLE THIS FOR VISIBILITY
         const CHAT_LAMBDA_URL = "https://l54azjvt5l2cerlwp2ubqaclnm0ulxbb.lambda-url.us-east-1.on.aws/";
+
+        // ========================================
+        // REFRESH ANALYSIS LOGIC
+        // ========================================
+        const ANALYSIS_LAMBDA_URL = CHAT_LAMBDA_URL; // Reuse the same Lambda
+
+        async function refreshAnalysis() {
+            const btn = document.getElementById('refresh-analysis-btn');
+            const memoEl = document.getElementById('memo-content');
+            const sectorEl = document.getElementById('sector-content');
+            const debugEl = document.getElementById('debug-content');
+            const model = document.getElementById('analysis-model-selector').value;
+
+            // Disable button and show loading state
+            btn.disabled = true;
+            btn.classList.add('loading');
+
+            const originalMemo = memoEl.innerHTML;
+            const originalSector = sectorEl.innerHTML;
+            memoEl.innerHTML = '<em>Generating fresh analysis with ' + model + '...</em>';
+            sectorEl.innerHTML = '<em>Generating sector analysis...</em>';
+            debugEl.innerHTML = '<em>Loading debug info...</em>';
+
+            try {
+                // Get user email for auth
+                let userEmail = '';
+                const idToken = sessionStorage.getItem('id_token');
+                if (idToken) {
+                    try {
+                        const parts = idToken.split('.');
+                        if (parts.length >= 2) {
+                            const payload = JSON.parse(atob(parts[1]));
+                            userEmail = payload.email || '';
+                        }
+                    } catch (e) {
+                        console.warn('Could not extract email from token');
+                    }
+                }
+
+                const res = await fetch(ANALYSIS_LAMBDA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'refresh_analysis',
+                        model: model,
+                        email: userEmail
+                    })
+                });
+
+                const data = await res.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // Format and display the results
+                const fmt = (t) => DOMPurify.sanitize(t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>'));
+
+                if (data.market_memo) {
+                    memoEl.innerHTML = fmt(data.market_memo);
+                } else if (data.response) {
+                    // If Lambda returns a single response, show it in both
+                    memoEl.innerHTML = fmt(data.response);
+                } else {
+                    memoEl.innerHTML = originalMemo;
+                }
+
+                if (data.sector_analysis) {
+                    sectorEl.innerHTML = fmt(data.sector_analysis);
+                } else {
+                    sectorEl.innerHTML = originalSector;
+                }
+
+                // Display debug info
+                if (data.debug) {
+                    const d = data.debug;
+                    debugEl.innerHTML = `<span style="color:#569cd6">// AI INPUT DEBUG INFO</span>
+<span style="color:#9cdcfe">Model Requested:</span> <span style="color:#ce9178">"${d.model_requested}"</span>
+<span style="color:#9cdcfe">Model Used:</span> <span style="color:#ce9178">"${d.model_used}"</span>
+<span style="color:#9cdcfe">Data Date:</span> <span style="color:#ce9178">"${d.data_date || 'unknown'}"</span>
+
+<span style="color:#569cd6">// === MACRO DATA ===</span>
+${JSON.stringify(d.macro_data, null, 2)}
+
+<span style="color:#569cd6">// === SECTOR DATA ===</span>
+${JSON.stringify(d.sector_data, null, 2)}
+
+<span style="color:#569cd6">// === SYSTEM PROMPT ===</span>
+<span style="color:#ce9178">${DOMPurify.sanitize(d.system_prompt)}</span>
+
+<span style="color:#569cd6">// === USER PROMPT ===</span>
+<span style="color:#ce9178">${DOMPurify.sanitize(d.user_prompt)}</span>`;
+                }
+
+            } catch (e) {
+                console.error('Refresh analysis error:', e);
+                memoEl.innerHTML = originalMemo;
+                sectorEl.innerHTML = originalSector;
+                alert('Failed to refresh analysis: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('loading');
+            }
+        }
 
         if (!IS_SUBSCRIBER) {
             document.getElementById('chat-btn').style.display = 'none';

@@ -54,6 +54,8 @@ def run_deploy():
         print("Error: OPENAI_API_KEY not found in .env file")
         sys.exit(1)
 
+    fred_key = os.getenv("FRED_API_KEY", "")
+
     sam_executable = shutil.which("sam")
     if not sam_executable:
         print("Error: 'sam' executable not found in PATH")
@@ -64,13 +66,15 @@ def run_deploy():
     # Get existing params and merge
     existing_params = get_sam_config_params()
     if existing_params:
-         combined_params = f"{existing_params} OpenAIApiKey={api_key}"
+         combined_params = f"{existing_params} OpenAIApiKey={api_key} FredApiKey={fred_key}"
     else:
-         combined_params = f"OpenAIApiKey={api_key}"
+         combined_params = f"OpenAIApiKey={api_key} FredApiKey={fred_key}"
 
     cmd = [
         sam_executable, "deploy",
         "--capabilities", "CAPABILITY_IAM",
+        "--force-upload",
+        "--no-fail-on-empty-changeset",
         "--parameter-overrides", combined_params
     ]
     subprocess.run(cmd, check=True)
